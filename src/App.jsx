@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 const API_URL = "https://script.google.com/macros/s/AKfycbwpg79JQ-FK7_f79_kT36RYJQuw6eeE9K4dNZCqYpT3VUKXqQkvghJWTMlcMFUOYSEP5Q/exec";
 /* ⚠️  Após atualizar o Apps Script, faz novo deploy httpse cola o URL atualizado acima */
 
+
 /* ═══════════════════════ PALETA CAIDI ═══════════════════════ */
 const C = {
   teal: "#00A89D", tealDark: "#008F86", tealLight: "#E6F7F6", tealSoft: "#B2E8E4",
@@ -118,11 +119,12 @@ function calc(t, apoios, aus, periodos, fecho) {
   const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
   const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
 
-  // Férias (globais)
+  // Férias (globais) — fecho CAIDI conta como férias obrigatórias já gastas
   const tF = fecho.reduce((s, f) => s + Number(f["Dias Úteis"] || 0), 0);
-  const fU = aus.filter(a => a.Motivo === "Férias (Obrigatórias)" && (a.Estado === "Aprovado" || a.Estado === "Pendente")).reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+  const fUPedidas = aus.filter(a => a.Motivo === "Férias (Obrigatórias)" && (a.Estado === "Aprovado" || a.Estado === "Pendente")).reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+  const fU = fUPedidas + tF; // total obrigatórias = pedidas + fecho
   const bU = aus.filter(a => a.Motivo === "Férias (Bónus)" && (a.Estado === "Aprovado" || a.Estado === "Pendente")).reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-  const oR = Number(t["Dias Férias"]) - fU, dBn = Number(t["Dias Bónus Ganhos"] || 0), bR = dBn - bU;
+  const oR = Math.max(Number(t["Dias Férias"]) - fU, 0), dBn = Number(t["Dias Bónus Ganhos"] || 0), bR = Math.max(dBn - bU, 0);
   const fE2 = Math.max(mE2 - ef, 0);
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
@@ -840,3 +842,4 @@ export default function App() {
   if (!t) { setUser(null); return null; }
   return <TherapistView data={data} terap={t} onLogout={() => setUser(null)} onRefresh={refresh} onAddAusencia={addAus} />;
 }
+
