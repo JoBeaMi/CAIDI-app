@@ -3,8 +3,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 /* ═══════════════════════════════════════════════════════════════
    CONFIGURAÇÃO — Cola aqui o URL do Google Apps Script
    ═══════════════════════════════════════════════════════════════ */
-const API_URL = "https://script.google.com/macros/s/AKfycbzLEKDgWLmgjt_VEaEyhE1bKP7fcafGmM-Vqp2M3aD05JrUD11Oo6op3k6j62EMoDp56A/exec";
-/* ⚠️  Após atualizar o Apps Script, faz novo deploy e cola o URL atualizado acima */
+const API_URL = "https://script.google.com/macros/s/AKfycbwpg79JQ-FK7_f79_kT36RYJQuw6eeE9K4dNZCqYpT3VUKXqQkvghJWTMlcMFUOYSEP5Q/exec";
+/* ⚠️  Após atualizar o Apps Script, faz novo deploy httpse cola o URL atualizado acima */
 
 /* ═══════════════════════ PALETA CAIDI ═══════════════════════ */
 const C = {
@@ -187,7 +187,7 @@ const Btn = ({ children, onClick, disabled, variant = "primary", style = {} }) =
 };
 
 const FileBadge = ({ url }) => {
-  if (!url || url === "(enviado)") return null;
+  if (!url || String(url).indexOf("http") !== 0) return null;
   return <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.blueBg, color: C.blue, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, textDecoration: "none", marginTop: 4 }}>📎 Ver comprovativo</a>;
 };
 
@@ -278,9 +278,10 @@ function Login({ terapeutas, config, onLogin }) {
 }
 
 /* ═══════════════════════ ABSENCE FORM ═══════════════════════ */
-function AbsenceForm({ type, terap, metrics, onSubmit, onClose }) {
+function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
   const [fD, setFD] = useState({ inicio: "", fim: "" });
   const [fN, setFN] = useState("");
+  const [justLetivo, setJustLetivo] = useState("");
   const [motivo, setMotivo] = useState(type === "ferias" ? "" : type === "baixa" ? "Baixa Médica" : type === "formacao" ? "Formação" : "Falta Justificada");
   const [ficheiro, setFicheiro] = useState(null);
   const [nomeF, setNomeF] = useState("");
@@ -291,20 +292,34 @@ function AbsenceForm({ type, terap, metrics, onSubmit, onClose }) {
   const isFerias = type === "ferias";
   const needsUpload = type !== "ferias";
 
+  // Detetar se datas caem em período letivo
+  const emLetivo = (() => {
+    if (!fD.inicio || !fD.fim || !periodos) return null;
+    const ini = new Date(fD.inicio), fim = new Date(fD.fim);
+    for (const p of periodos) {
+      const pI = new Date(p["Início"]), pF = new Date(p.Fim);
+      if (ini <= pF && fim >= pI) return p["Período"];
+    }
+    return null;
+  })();
+
   const handleFile = (e) => { const f = e.target.files[0]; if (!f) return; if (f.size > 10*1024*1024) { alert("Máx 10MB"); return; } setNomeF(f.name); setFicheiro(f); };
   const removeFile = () => { setFicheiro(null); setNomeF(""); if (fileRef.current) fileRef.current.value = ""; };
 
   const submit = async () => {
     if (!fD.inicio || !fD.fim) return;
+    if (isFerias && emLetivo && !justLetivo.trim()) { setErrMsg("Pedido em período letivo — indica o motivo da exceção."); return; }
     setSub(true); setErrMsg("");
     const dias = contarDiasUteis(fD.inicio, fD.fim);
     let mot = motivo;
     if (isFerias) mot = metrics.oR > 0 ? "Férias (Obrigatórias)" : "Férias (Bónus)";
+    const notaFinal = emLetivo && isFerias ? (fN ? fN + " | " : "") + "⚠️ LETIVO (" + emLetivo + "): " + justLetivo : fN;
     let ficheiroData = null;
     if (ficheiro) { try { ficheiroData = await fileToBase64(ficheiro); } catch {} }
     try {
-      await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: fN, ficheiro: ficheiroData });
-      onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Estado: "Pendente", Observações: fN, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: ficheiro ? "(enviado)" : "" });
+      const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal, ficheiro: ficheiroData });
+      const linkReal = (resp && resp.ficheiro && resp.ficheiro.indexOf("http") === 0) ? resp.ficheiro : "";
+      onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
       setDone(true); setTimeout(onClose, 1800);
     } catch (err) { setErrMsg("Erro: " + err.message); }
     setSub(false);
@@ -363,6 +378,24 @@ function AbsenceForm({ type, terap, metrics, onSubmit, onClose }) {
                   </div>
                 )}
                 <input ref={fileRef} type="file" accept="image/*,.pdf,.doc,.docx" capture="environment" onChange={handleFile} style={{ display: "none" }} />
+              </div>
+            )}
+            {isFerias && fD.inicio && fD.fim && emLetivo && (
+              <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, marginBottom: 14, border: "1px solid #f5c6c0" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 20 }}>🔴</span>
+                  <div><div style={{ fontSize: 13, fontWeight: 800, color: C.red }}>Período letivo ({emLetivo})</div><div style={{ fontSize: 11, color: C.darkSoft, marginTop: 1 }}>Podes pedir, mas precisas de justificar.</div></div>
+                </div>
+                <label style={{ fontSize: 10, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Motivo da exceção *</label>
+                <input type="text" value={justLetivo} onChange={e => setJustLetivo(e.target.value)} placeholder="Ex: Casamento, compromisso inadiável..." style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid #f5c6c0", fontSize: 14, color: C.dark, background: C.white }} />
+              </div>
+            )}
+            {isFerias && fD.inicio && fD.fim && !emLetivo && (
+              <div style={{ background: C.greenBg, padding: "12px 14px", borderRadius: 14, marginBottom: 14, border: "1px solid #b2f5ea" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 20 }}>✅</span>
+                  <div><div style={{ fontSize: 13, fontWeight: 800, color: C.green }}>Fora do período letivo</div><div style={{ fontSize: 11, color: C.darkSoft, marginTop: 1 }}>Boa escolha! Aguarda confirmação da gestão.</div></div>
+                </div>
               </div>
             )}
             {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR} dias obrigatórios</strong> por marcar</div>}
@@ -620,6 +653,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                   <span style={{ background: e.bg, color: e.c, padding: "3px 9px", borderRadius: 8, fontSize: 10, fontWeight: 700 }}>{e.icon} {e.l}</span>
                 </div>
                 {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, fontStyle: "italic", marginTop: 4 }}>"{p.Observações}"</div>}
+                {p["Resposta Gestão"] && <div style={{ fontSize: 11, marginTop: 4, padding: "6px 10px", borderRadius: 8, background: p.Estado === "Rejeitado" ? C.redBg : C.greenBg, color: p.Estado === "Rejeitado" ? C.red : C.green, fontWeight: 600 }}>💬 Gestão: {p["Resposta Gestão"]}</div>}
                 <FileBadge url={p.Ficheiro} />
               </Card>
             ); })}
@@ -638,6 +672,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                   <span style={{ background: e.bg, color: e.c, padding: "3px 9px", borderRadius: 8, fontSize: 10, fontWeight: 700 }}>{e.icon} {e.l}</span>
                 </div>
                 {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, fontStyle: "italic", marginTop: 4 }}>"{p.Observações}"</div>}
+                {p["Resposta Gestão"] && <div style={{ fontSize: 11, marginTop: 4, padding: "6px 10px", borderRadius: 8, background: p.Estado === "Rejeitado" ? C.redBg : C.greenBg, color: p.Estado === "Rejeitado" ? C.red : C.green, fontWeight: 600 }}>💬 Gestão: {p["Resposta Gestão"]}</div>}
                 <FileBadge url={p.Ficheiro} />
               </Card>
             ); })}
@@ -645,7 +680,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
         )}
       </div>
 
-      {showForm && <AbsenceForm type={showForm} terap={terap} metrics={m} onSubmit={handleSubmit} onClose={() => setShowForm(null)} />}
+      {showForm && <AbsenceForm type={showForm} terap={terap} metrics={m} periodos={data.periodos} onSubmit={handleSubmit} onClose={() => setShowForm(null)} />}
 
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 420, background: C.white, borderTop: "1px solid " + C.grayLight, display: "flex", justifyContent: "space-around", padding: "6px 0 12px", boxShadow: "0 -4px 20px rgba(0,0,0,0.04)" }}>
         {tabs.map(tb => (
@@ -664,9 +699,11 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
 function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   const [upd, setUpd] = useState(null);
   const [filtro, setFiltro] = useState("todos");
+  const [obsGestao, setObsGestao] = useState({});
   const handle = async (ln, est) => {
     setUpd(ln);
-    try { await apiPost({ action: est === "Aprovado" ? "aprovarPedido" : "rejeitarPedido", linha: ln }); onUpdateEstado(ln, est); } catch (err) { alert("Erro: " + err.message); }
+    const obs = obsGestao[ln] || "";
+    try { await apiPost({ action: est === "Aprovado" ? "aprovarPedido" : "rejeitarPedido", linha: ln, observacao: obs }); onUpdateEstado(ln, est, obs); } catch (err) { alert("Erro: " + err.message); }
     setUpd(null); onRefresh();
   };
   const pend = data.ausencias.filter(a => a.Estado === "Pendente");
@@ -716,16 +753,22 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
         <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "18px 0 10px" }}>Pedidos pendentes {pend.length > 0 && <span style={{ background: C.redBg, color: C.red, padding: "2px 8px", borderRadius: 8, fontSize: 12, fontWeight: 800, marginLeft: 8 }}>{pend.length}</span>}</h2>
         {pend.length === 0 ? (
           <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}><div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: C.green }}>✓ Sem pedidos pendentes!</div></Card>
-        ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); return (
+        ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); return (
           <Card key={i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
             <div style={{ marginBottom: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t ? t.Nome : p.ID_Terapeuta}</div>
-                <span style={{ background: mi.color + "18", color: mi.color, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{mi.icon} {mi.short}</span>
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  {isLetivo && <span style={{ background: C.redBg, color: C.red, padding: "3px 8px", borderRadius: 6, fontSize: 9, fontWeight: 800 }}>🔴 LETIVO</span>}
+                  <span style={{ background: mi.color + "18", color: mi.color, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{mi.icon} {mi.short}</span>
+                </div>
               </div>
               <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {p["Dias Úteis"]}d</div>
               {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, fontStyle: "italic", marginTop: 3 }}>"{p.Observações}"</div>}
               <FileBadge url={p.Ficheiro} />
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <input type="text" placeholder="Observação da gestão (opcional)" value={obsGestao[p._linha] || ""} onChange={e => setObsGestao(o => ({ ...o, [p._linha]: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 10, border: "2px solid " + C.grayLight, fontSize: 12, color: C.dark, background: C.grayBg }} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <Btn onClick={() => handle(p._linha, "Aprovado")} disabled={upd === p._linha} variant="success" style={{ flex: 1, padding: 10 }}>✓ Aprovar</Btn>
@@ -787,7 +830,7 @@ export default function App() {
   useEffect(() => { fetchData(); }, [fetchData]);
   const refresh = () => fetchData();
   const addAus = (n) => setData(p => ({ ...p, ausencias: [...p.ausencias, { ...n, _linha: p.ausencias.length + 2 }] }));
-  const updEst = (ln, est) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, Estado: est } : a) }));
+  const updEst = (ln, est, obs) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, Estado: est, "Resposta Gestão": obs || "" } : a) }));
 
   if (loading) return <Loading />;
   if (error || !data) return <ErrorScreen error={error || "Sem dados"} onRetry={fetchData} />;
