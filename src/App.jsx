@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 /* ═══════════════════════════════════════════════════════════════
    CONFIGURAÇÃO — Cola aqui o URL do Google Apps Script
    ═══════════════════════════════════════════════════════════════ */
-const API_URL = "https://script.google.com/macros/s/AKfycbzTnXtk2Jqb_bwjn1YDdbcd_VzBwgxR0C9LNNI1hngiYRSd7Gc9qG_QXFK6fUN1tsBZ3Q/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbzLEKDgWLmgjt_VEaEyhE1bKP7fcafGmM-Vqp2M3aD05JrUD11Oo6op3k6j62EMoDp56A/exec";
 /* ⚠️  Após atualizar o Apps Script, faz novo deploy e cola o URL atualizado acima */
 
 /* ═══════════════════════ PALETA CAIDI ═══════════════════════ */
