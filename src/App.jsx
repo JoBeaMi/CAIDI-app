@@ -933,6 +933,8 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   const [obsGestao, setObsGestao] = useState({});
   const [adminTab, setAdminTab] = useState("semana");
   const [semanaOffset, setSemanaOffset] = useState(0);
+  const [mesOffset, setMesOffset] = useState(0);
+  const [searchTer, setSearchTer] = useState("");
 
   // Form registar falta
   const [faltaTer, setFaltaTer] = useState("");
@@ -994,8 +996,30 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
     return data.fecho.find(f => f["Data Início"] <= diaStr && f["Data Fim"] >= diaStr);
   }
 
+  // Verificar se um dia está em período letivo
+  function isLetivo(diaStr) {
+    return data.periodos.some(p => diaStr >= p["Início"] && diaStr <= p.Fim);
+  }
+
+  // ── Vista mensal ──
+  const mesBase = new Date();
+  mesBase.setMonth(mesBase.getMonth() + mesOffset);
+  const mesAno = mesBase.getFullYear();
+  const mesNum = mesBase.getMonth();
+  const mesNomes = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+  const primDiaMes = new Date(mesAno, mesNum, 1);
+  const ultDiaMes = new Date(mesAno, mesNum + 1, 0);
+  const diasMes = [];
+  for (let d = 1; d <= ultDiaMes.getDate(); d++) {
+    const dt = new Date(mesAno, mesNum, d);
+    const dow = dt.getDay();
+    if (dow !== 0 && dow !== 6) diasMes.push(dt);
+  }
+  const diasMesStr = diasMes.map(d => d.toISOString().slice(0, 10));
+
   const adminTabs = [
     { id: "semana", icon: "📅", l: "Semana" },
+    { id: "mes", icon: "🗓️", l: "Mês" },
     { id: "equipa", icon: "👥", l: "Equipa" },
     { id: "pendentes", icon: "⏳", l: "Pedidos", badge: pend.length },
     { id: "falta", icon: "⚠️", l: "Reg. Falta" },
@@ -1049,34 +1073,108 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                 <div style={{ padding: "8px 10px", fontSize: 11, fontWeight: 800, color: C.darkSoft }}>Terapeuta</div>
                 {semDias.map((d, i) => {
                   const isHoje = d.toISOString().slice(0, 10) === hoje.toISOString().slice(0, 10);
-                  return <div key={i} style={{ padding: "8px 2px", fontSize: 10, fontWeight: 800, color: isHoje ? C.teal : C.gray, textAlign: "center" }}>{nomeDia[i]}<br/><span style={{ fontSize: 12, fontWeight: 900 }}>{d.getDate()}</span></div>;
+                  const dStr = d.toISOString().slice(0, 10);
+                  const letivo = isLetivo(dStr);
+                  return <div key={i} style={{ padding: "8px 2px", fontSize: 10, fontWeight: 800, color: isHoje ? C.teal : C.gray, textAlign: "center", background: letivo ? "#FFF0F3" : "#F0FFF4" }}>{nomeDia[i]}<br/><span style={{ fontSize: 12, fontWeight: 900 }}>{d.getDate()}</span></div>;
                 })}
               </div>
               {data.terapeutas.map((t, ti) => (
-                <div key={t.ID} style={{ display: "grid", gridTemplateColumns: "1fr " + "40px ".repeat(5), borderBottom: ti < data.terapeutas.length - 1 ? "1px solid " + C.grayLight : "none", background: ti % 2 === 0 ? C.white : C.grayBg }}>
-                  <div style={{ padding: "6px 10px", fontSize: 12, fontWeight: 600, color: C.dark, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{t.Nome.split(" ")[0]} {(t.Nome.split(" ").pop() || "")}</div>
+                <div key={t.ID} style={{ display: "grid", gridTemplateColumns: "1fr " + "40px ".repeat(5), borderBottom: ti < data.terapeutas.length - 1 ? "1px solid " + C.grayLight : "none" }}>
+                  <div style={{ padding: "6px 10px", fontSize: 12, fontWeight: 600, color: C.dark, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", background: ti % 2 === 0 ? C.white : C.grayBg }}>{t.Nome.split(" ")[0]} {(t.Nome.split(" ").pop() || "")}</div>
                   {semStr.map((dStr, di) => {
+                    const letivo = isLetivo(dStr);
+                    const bgCol = letivo ? "#FFF0F3" : "#F0FFF4";
                     const fecho = fechoDia(dStr);
-                    if (fecho) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.gray }} title={"Fecho: " + fecho.Nome}>🔒</div>;
+                    if (fecho) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.gray, background: bgCol }} title={"Fecho: " + fecho.Nome}>🔒</div>;
                     const tHor = getHorario(data.horarios, t.ID);
                     const dObj = new Date(dStr);
-                    if (tHor && !trabalhaDia(tHor, dObj.getDay())) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.grayLight, fontWeight: 700 }} title="Sem horário">—</div>;
+                    if (tHor && !trabalhaDia(tHor, dObj.getDay())) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.grayLight, fontWeight: 700, background: bgCol }} title="Sem horário">—</div>;
                     const aus = terapAusenteDia(t.ID, dStr);
                     if (aus) {
-                      const mi = motivoInfo(aus.Motivo);
-                      return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }} title={mi.label + (aus.Estado === "Pendente" ? " (pendente)" : "")}><span style={{ opacity: aus.Estado === "Pendente" ? 0.5 : 1 }}>{mi.icon}</span></div>;
+                      const isBonusF = aus.Motivo === "Férias (Bónus)";
+                      const icon = isBonusF ? "🎁" : motivoInfo(aus.Motivo).icon;
+                      const label = isBonusF ? "Férias bónus" : motivoInfo(aus.Motivo).label;
+                      return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, background: bgCol }} title={label + (aus.Estado === "Pendente" ? " (pendente)" : "")}><span style={{ opacity: aus.Estado === "Pendente" ? 0.5 : 1 }}>{icon}</span></div>;
                     }
-                    return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: C.green }}>✓</div>;
+                    return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: C.green, background: bgCol }}>✓</div>;
                   })}
                 </div>
               ))}
             </Card>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, padding: "0 4px" }}>
-              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "—", l: "S/horário", c: C.gray }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
+              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "—", l: "S/horário", c: C.gray }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🎁", l: "F. bónus", c: C.green }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
                 <span key={i} style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}>{x.i} {x.l}</span>
               ))}
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 4, padding: "0 4px" }}>
+              <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#FFF0F3", border: "1px solid #f5c6c0", verticalAlign: "middle", marginRight: 3 }} /> Letivo</span>
+              <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#F0FFF4", border: "1px solid #b2f5ea", verticalAlign: "middle", marginRight: 3 }} /> Não letivo</span>
               <span style={{ fontSize: 10, color: C.gray, fontWeight: 600, fontStyle: "italic" }}>· semi-transparente = pendente</span>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ TAB MÊS ═══ */}
+        {adminTab === "mes" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <button onClick={() => setMesOffset(o => o - 1)} style={{ background: C.white, border: "1px solid " + C.grayLight, borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: "pointer", color: C.dark }}>‹</button>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 15, fontWeight: 900, color: C.dark }}>🗓️ {mesNomes[mesNum]} {mesAno}</div>
+                <div style={{ fontSize: 11, color: C.darkSoft }}>{diasMes.length} dias úteis</div>
+              </div>
+              <button onClick={() => setMesOffset(o => o + 1)} style={{ background: C.white, border: "1px solid " + C.grayLight, borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: "pointer", color: C.dark }}>›</button>
+            </div>
+
+            <Card delay={0} style={{ padding: 0, overflow: "auto" }}>
+              <div style={{ minWidth: diasMes.length * 28 + 120 }}>
+                {/* Header com dias */}
+                <div style={{ display: "flex", borderBottom: "1px solid " + C.grayLight, position: "sticky", top: 0, background: C.white, zIndex: 2 }}>
+                  <div style={{ minWidth: 120, maxWidth: 120, padding: "6px 8px", fontSize: 11, fontWeight: 800, color: C.darkSoft, borderRight: "1px solid " + C.grayLight }}>Terapeuta</div>
+                  {diasMes.map((d, i) => {
+                    const dStr = diasMesStr[i];
+                    const letivo = isLetivo(dStr);
+                    const isHoje = dStr === hoje.toISOString().slice(0, 10);
+                    return <div key={i} style={{ minWidth: 28, maxWidth: 28, padding: "4px 0", fontSize: 9, fontWeight: 700, color: isHoje ? C.teal : C.gray, textAlign: "center", background: letivo ? "#FFF0F3" : "#F0FFF4", borderBottom: isHoje ? "2px solid " + C.teal : "none" }}>
+                      <div>{nomeDia[(d.getDay() + 6) % 7]?.charAt(0)}</div>
+                      <div style={{ fontSize: 10, fontWeight: 900 }}>{d.getDate()}</div>
+                    </div>;
+                  })}
+                </div>
+                {/* Linhas de terapeutas */}
+                {data.terapeutas.map((t, ti) => (
+                  <div key={t.ID} style={{ display: "flex", borderBottom: ti < data.terapeutas.length - 1 ? "1px solid " + C.grayLight : "none" }}>
+                    <div style={{ minWidth: 120, maxWidth: 120, padding: "4px 8px", fontSize: 11, fontWeight: 600, color: C.dark, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", background: ti % 2 === 0 ? C.white : C.grayBg, borderRight: "1px solid " + C.grayLight }}>{t.Nome.split(" ")[0]} {(t.Nome.split(" ").pop() || "").charAt(0)}.</div>
+                    {diasMesStr.map((dStr, di) => {
+                      const letivo = isLetivo(dStr);
+                      const bgCol = letivo ? "#FFF0F3" : "#F0FFF4";
+                      const fecho = fechoDia(dStr);
+                      if (fecho) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.gray, background: bgCol }}>🔒</div>;
+                      const tHor = getHorario(data.horarios, t.ID);
+                      const dObj = new Date(dStr);
+                      if (tHor && !trabalhaDia(tHor, dObj.getDay())) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: C.grayLight, background: bgCol }}>—</div>;
+                      const aus = terapAusenteDia(t.ID, dStr);
+                      if (aus) {
+                        const isBonusF = aus.Motivo === "Férias (Bónus)";
+                        const icon = isBonusF ? "🎁" : motivoInfo(aus.Motivo).icon;
+                        return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, background: bgCol }} title={(isBonusF ? "Férias bónus" : motivoInfo(aus.Motivo).label) + (aus.Estado === "Pendente" ? " (pendente)" : "")}><span style={{ opacity: aus.Estado === "Pendente" ? 0.5 : 1 }}>{icon}</span></div>;
+                      }
+                      return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.green, background: bgCol }}>✓</div>;
+                    })}
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, padding: "0 4px" }}>
+              {[{ i: "✓", l: "Trabalha" }, { i: "—", l: "S/horário" }, { i: "🔒", l: "Fecho" }, { i: "🌴", l: "Férias" }, { i: "🎁", l: "F. bónus" }, { i: "🏥", l: "Baixa" }, { i: "📋", l: "Falta" }, { i: "⚠️", l: "F.Inj." }, { i: "🎓", l: "Form." }].map((x, i) => (
+                <span key={i} style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}>{x.i} {x.l}</span>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 4, padding: "0 4px" }}>
+              <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#FFF0F3", border: "1px solid #f5c6c0", verticalAlign: "middle", marginRight: 3 }} /> Letivo</span>
+              <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#F0FFF4", border: "1px solid #b2f5ea", verticalAlign: "middle", marginRight: 3 }} /> Não letivo</span>
             </div>
           </div>
         )}
@@ -1210,26 +1308,111 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
         {/* ═══ TAB HISTÓRICO ═══ */}
         {adminTab === "historico" && (
           <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: 0 }}>Histórico</h2>
-              <div style={{ display: "flex", gap: 3 }}>
-                {[{ k: "todos", l: "Tudo" }, { k: "ferias", l: "🌴" }, { k: "baixas", l: "🏥" }, { k: "faltas", l: "⚠️" }, { k: "formacao", l: "🎓" }].map(f => (
-                  <button key={f.k} onClick={() => setFiltro(f.k)} style={{ background: filtro === f.k ? C.tealLight : C.white, border: "1px solid " + (filtro === f.k ? C.tealSoft : C.grayLight), borderRadius: 8, padding: "4px 7px", fontSize: 11, fontWeight: 700, color: filtro === f.k ? C.tealDark : C.gray, cursor: "pointer" }}>{f.l}</button>
-                ))}
-              </div>
+            <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Histórico</h2>
+            
+            {/* Pesquisa por terapeuta */}
+            <div style={{ marginBottom: 10 }}>
+              <input type="text" value={searchTer} onChange={e => setSearchTer(e.target.value)} placeholder="🔍 Pesquisar terapeuta..." style={{ width: "100%", padding: "10px 14px", borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.white, fontFamily: "'DM Sans', sans-serif" }} />
             </div>
-            {hist.length === 0 ? (
-              <Card><div style={{ textAlign: "center", padding: 20, color: C.gray }}><div style={{ fontSize: 36 }}>📋</div><div style={{ fontSize: 14, marginTop: 6 }}>Sem histórico</div></div></Card>
-            ) : histFilt.slice(0, 20).map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; return (
-              <div key={i} style={{ background: C.white, borderRadius: 14, padding: "9px 14px", border: "1px solid " + C.grayLight, marginBottom: 4, opacity: 0.65, fontSize: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div><span style={{ fontWeight: 700 }}>{t ? t.Nome : p.ID_Terapeuta}</span><span style={{ color: C.gray, marginLeft: 6, fontSize: 10 }}>{mi.icon} {fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? "→" + fmtD(p["Data Fim"]) : ""}</span></div>
-                  <span style={{ background: e.bg, color: e.c, padding: "2px 7px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{e.icon}</span>
+
+            {/* Se pesquisou, mostrar resumo da terapeuta */}
+            {searchTer.trim().length > 0 && (() => {
+              const terFilt = data.terapeutas.filter(t => t.Nome.toLowerCase().includes(searchTer.toLowerCase()));
+              if (terFilt.length === 0) return <Card style={{ marginBottom: 10 }}><div style={{ textAlign: "center", fontSize: 13, color: C.gray }}>Nenhum terapeuta encontrado</div></Card>;
+              return terFilt.map(t => {
+                const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
+                const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
+                const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios);
+                const tIsADM = t["Área"] === "ADM";
+                const pedidos = a2.sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
+                return (
+                  <div key={t.ID}>
+                    <Card delay={0} style={{ marginBottom: 8, background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 12, background: C.teal, color: C.white, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800 }}>{ini(t.Nome)}</div>
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: C.dark }}>{t.Nome}</div>
+                          <div style={{ fontSize: 11, color: C.darkSoft }}>{t["Área"]}{m2.diasTrab < 5 ? " · " + m2.diasTrab + "d/sem" : ""}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, textAlign: "center" }}>
+                        <div style={{ padding: 8, background: C.white, borderRadius: 10 }}>
+                          <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>🌴 Obrig.</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</div>
+                          <div style={{ fontSize: 9, color: C.gray }}>restam</div>
+                        </div>
+                        <div style={{ padding: 8, background: C.white, borderRadius: 10 }}>
+                          <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>🎁 Bónus</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: C.green }}>{m2.bR}</div>
+                          <div style={{ fontSize: 9, color: C.gray }}>restam</div>
+                        </div>
+                        <div style={{ padding: 8, background: C.white, borderRadius: 10 }}>
+                          <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>🏥 Baixa</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: m2.dB > 0 ? C.purple : C.gray }}>{m2.dB}d</div>
+                          <div style={{ fontSize: 9, color: C.gray }}>usados</div>
+                        </div>
+                        <div style={{ padding: 8, background: C.white, borderRadius: 10 }}>
+                          <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>⚠️ F.Inj.</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: m2.dFI > 0 ? C.red : C.gray }}>{m2.dFI}</div>
+                          <div style={{ fontSize: 9, color: C.gray }}>dias</div>
+                        </div>
+                      </div>
+                      {m2.diasTrab < 5 && (
+                        <div style={{ marginTop: 8, padding: "6px 10px", background: C.white, borderRadius: 8, fontSize: 11, color: C.darkSoft }}>
+                          📋 Dias CAIDI: <strong>{m2.usadosCAIDI}</strong> usados de <strong>{m2.limiteCAIDI}</strong> ({m2.diasFeriasCAIDI} obrig.{m2.diasBonusCAIDI > 0 ? " + " + m2.diasBonusCAIDI + " bónus" : ""}) · <strong style={{ color: m2.restamCAIDI <= 2 ? C.red : C.green }}>{m2.restamCAIDI} disponíveis</strong>
+                        </div>
+                      )}
+                      {!tIsADM && (
+                        <div style={{ marginTop: 8, padding: "6px 10px", background: C.white, borderRadius: 8, fontSize: 11, color: C.darkSoft }}>
+                          🎯 Meta: <strong>{m2.ef}/{m2.mMin}</strong> ({m2.pM}%){m2.eurosTotal > 0 ? " · 💶 +" + m2.eurosTotal + "€" : ""}
+                        </div>
+                      )}
+                    </Card>
+                    
+                    {/* Pedidos desta terapeuta */}
+                    {pedidos.length === 0 ? (
+                      <Card style={{ marginBottom: 12 }}><div style={{ textAlign: "center", fontSize: 13, color: C.gray }}>Sem pedidos registados</div></Card>
+                    ) : pedidos.map((p, i) => {
+                      const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente;
+                      return (
+                        <div key={i} style={{ background: C.white, borderRadius: 14, padding: "9px 14px", border: "1px solid " + C.grayLight, borderLeft: "4px solid " + mi.color, marginBottom: 4, fontSize: 12 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div><span style={{ color: C.gray, fontSize: 10 }}>{mi.icon} {mi.short}</span><span style={{ marginLeft: 6, fontWeight: 700 }}>{fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? " → " + fmtD(p["Data Fim"]) : ""}</span><span style={{ color: C.gray, marginLeft: 4, fontSize: 10 }}>{p["Dias Úteis"]}d</span></div>
+                            <span style={{ background: e.bg, color: e.c, padding: "2px 7px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{e.icon}</span>
+                          </div>
+                          {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2, fontStyle: "italic" }}>"{p.Observações}"</div>}
+                          {p["Resposta Gestão"] && <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>💬 {p["Resposta Gestão"]}</div>}
+                          {p.Ficheiro && <FileBadge url={p.Ficheiro} />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              });
+            })()}
+
+            {/* Filtros de tipo (quando não há pesquisa) */}
+            {searchTer.trim().length === 0 && (
+              <>
+                <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
+                  {[{ k: "todos", l: "Tudo" }, { k: "ferias", l: "🌴" }, { k: "baixas", l: "🏥" }, { k: "faltas", l: "⚠️" }, { k: "formacao", l: "🎓" }].map(f => (
+                    <button key={f.k} onClick={() => setFiltro(f.k)} style={{ background: filtro === f.k ? C.tealLight : C.white, border: "1px solid " + (filtro === f.k ? C.tealSoft : C.grayLight), borderRadius: 8, padding: "4px 7px", fontSize: 11, fontWeight: 700, color: filtro === f.k ? C.tealDark : C.gray, cursor: "pointer" }}>{f.l}</button>
+                  ))}
                 </div>
-                {p["Resposta Gestão"] && <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>💬 {p["Resposta Gestão"]}</div>}
-                {p.Ficheiro && <FileBadge url={p.Ficheiro} />}
-              </div>
-            ); })}
+                {hist.length === 0 ? (
+                  <Card><div style={{ textAlign: "center", padding: 20, color: C.gray }}><div style={{ fontSize: 36 }}>📋</div><div style={{ fontSize: 14, marginTop: 6 }}>Sem histórico</div></div></Card>
+                ) : histFilt.slice(0, 20).map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; return (
+                  <div key={i} style={{ background: C.white, borderRadius: 14, padding: "9px 14px", border: "1px solid " + C.grayLight, marginBottom: 4, opacity: 0.65, fontSize: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div><span style={{ fontWeight: 700 }}>{t ? t.Nome : p.ID_Terapeuta}</span><span style={{ color: C.gray, marginLeft: 6, fontSize: 10 }}>{mi.icon} {fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? "→" + fmtD(p["Data Fim"]) : ""}</span></div>
+                      <span style={{ background: e.bg, color: e.c, padding: "2px 7px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{e.icon}</span>
+                    </div>
+                    {p["Resposta Gestão"] && <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>💬 {p["Resposta Gestão"]}</div>}
+                    {p.Ficheiro && <FileBadge url={p.Ficheiro} />}
+                  </div>
+                ); })}
+              </>
+            )}
           </div>
         )}
       </div>
