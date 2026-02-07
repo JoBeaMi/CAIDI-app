@@ -1,11 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-/* ═══════════════════════════════════════════════════════════════
-   CONFIGURAÇÃO — Cola aqui o URL do Google Apps Script
-   ═══════════════════════════════════════════════════════════════ */
-const API_URL = "https://script.google.com/macros/s/AKfycbwpg79JQ-FK7_f79_kT36RYJQuw6eeE9K4dNZCqYpT3VUKXqQkvghJWTMlcMFUOYSEP5Q/exec";
-/* ⚠️  Após atualizar o Apps Script, faz novo deploy httpse cola o URL atualizado acima */
-
+const API_URL = "https://script.google.com/macros/s/AKfycbw7282dmHxfF9gmi2Zf_LyCvtjrEUPMswmyAhFusbviLD2m-_9T11zEFAqwmU_Eu1Y5Pw/exec";
+/* ⚠️  Após atualizar o Apps Script, faz novo deploy e cola o URL atualizado acima */
 
 /* ═══════════════════════ PALETA CAIDI ═══════════════════════ */
 const C = {
@@ -697,17 +693,44 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   );
 }
 
+
 /* ═══════════════════════ ADMIN VIEW ═══════════════════════ */
 function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   const [upd, setUpd] = useState(null);
   const [filtro, setFiltro] = useState("todos");
   const [obsGestao, setObsGestao] = useState({});
+  const [adminTab, setAdminTab] = useState("semana");
+  const [semanaOffset, setSemanaOffset] = useState(0);
+
+  // Form registar falta
+  const [faltaTer, setFaltaTer] = useState("");
+  const [faltaInicio, setFaltaInicio] = useState("");
+  const [faltaFim, setFaltaFim] = useState("");
+  const [faltaMotivo, setFaltaMotivo] = useState("Falta Injustificada");
+  const [faltaNota, setFaltaNota] = useState("");
+  const [faltaSub, setFaltaSub] = useState(false);
+  const [faltaDone, setFaltaDone] = useState(false);
+
   const handle = async (ln, est) => {
     setUpd(ln);
     const obs = obsGestao[ln] || "";
     try { await apiPost({ action: est === "Aprovado" ? "aprovarPedido" : "rejeitarPedido", linha: ln, observacao: obs }); onUpdateEstado(ln, est, obs); } catch (err) { alert("Erro: " + err.message); }
     setUpd(null); onRefresh();
   };
+
+  const submitFalta = async () => {
+    if (!faltaTer || !faltaInicio || !faltaFim) return;
+    setFaltaSub(true);
+    const t = data.terapeutas.find(x => x.ID === faltaTer);
+    try {
+      await apiPost({ action: "registarFaltaGestao", terapId: faltaTer, nome: t ? t.Nome : "", dataInicio: faltaInicio, dataFim: faltaFim, motivo: faltaMotivo, nota: faltaNota || "Registado pela gestão" });
+      setFaltaDone(true);
+      setTimeout(() => { setFaltaDone(false); setFaltaTer(""); setFaltaInicio(""); setFaltaFim(""); setFaltaNota(""); setFaltaMotivo("Falta Injustificada"); }, 1500);
+      onRefresh();
+    } catch (err) { alert("Erro: " + err.message); }
+    setFaltaSub(false);
+  };
+
   const pend = data.ausencias.filter(a => a.Estado === "Pendente");
   const hist = data.ausencias.filter(a => a.Estado !== "Pendente");
   const histFilt = hist.filter(a => {
@@ -718,8 +741,34 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
     return true;
   });
 
+  // ── Vista semanal ──
+  const hoje = new Date();
+  const seg = new Date(hoje); seg.setDate(hoje.getDate() - ((hoje.getDay() + 6) % 7) + semanaOffset * 7);
+  const semDias = Array.from({ length: 5 }, (_, i) => { const d = new Date(seg); d.setDate(seg.getDate() + i); return d; });
+  const semStr = semDias.map(d => d.toISOString().slice(0, 10));
+  const semLabel = fmtD(semStr[0]) + " → " + fmtD(semStr[4]);
+  const nomeDia = ["Seg", "Ter", "Qua", "Qui", "Sex"];
+
+  const ausAprov = data.ausencias.filter(a => a.Estado === "Aprovado" || a.Estado === "Pendente");
+  function terapAusenteDia(tId, diaStr) {
+    return ausAprov.find(a => a.ID_Terapeuta === tId && a["Data Início"] <= diaStr && a["Data Fim"] >= diaStr);
+  }
+
+  // Fecho CAIDI também conta como ausência
+  function fechoDia(diaStr) {
+    return data.fecho.find(f => f["Data Início"] <= diaStr && f["Data Fim"] >= diaStr);
+  }
+
+  const adminTabs = [
+    { id: "semana", icon: "📅", l: "Semana" },
+    { id: "equipa", icon: "👥", l: "Equipa" },
+    { id: "pendentes", icon: "⏳", l: "Pedidos", badge: pend.length },
+    { id: "falta", icon: "⚠️", l: "Reg. Falta" },
+    { id: "historico", icon: "📋", l: "Histórico" },
+  ];
+
   return (
-    <div style={{ maxWidth: 480, margin: "0 auto", minHeight: "100vh", background: C.grayBg, fontFamily: "'DM Sans', sans-serif", padding: "0 0 24px" }}>
+    <div style={{ maxWidth: 480, margin: "0 auto", minHeight: "100vh", background: C.grayBg, fontFamily: "'DM Sans', sans-serif", position: "relative", paddingBottom: 80 }}>
       <style>{CSS}</style>
       <div style={{ background: "linear-gradient(140deg, " + C.dark + " 0%, #3d4f51 100%)", padding: "24px 20px 20px", color: C.white, borderRadius: "0 0 28px 28px", position: "relative", overflow: "hidden" }}>
         <div style={{ position: "absolute", top: -20, right: -20, width: 100, height: 100, borderRadius: "50%", background: C.teal + "12" }} />
@@ -728,83 +777,213 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
           <button onClick={onLogout} style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 10, padding: "7px 14px", color: C.white, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Sair</button>
         </div>
       </div>
+
       <div style={{ padding: "16px 16px 0" }}>
-        <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Equipa</h2>
-        {data.terapeutas.map((t, idx) => {
-          const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-          const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
-          const m2 = calc(t, ap2, a2, data.periodos, data.fecho);
-          return (
-            <Card key={t.ID} delay={idx * 0.05} style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
-              <Ring value={m2.ef} max={m2.mMin} size={48} stroke={5} color={m2.sc}><span style={{ fontSize: 11, fontWeight: 900, color: m2.sc }}>{m2.pM}%</span></Ring>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, fontWeight: 800, color: C.dark }}>{t.Nome}</span><span>{m2.pH >= 95 ? "🟢" : m2.pH >= 80 ? "🟡" : "🔴"}</span></div>
-                <div style={{ fontSize: 10, color: C.darkSoft }}>{m2.ef}/{m2.mMin} · {t["Área"]} · {m2.quad ? m2.quad.meses : ""}</div>
-                <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>
-              </div>
-              <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
-                <div>🌴 <span style={{ fontWeight: 800, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</span></div>
-                {m2.dB > 0 && <div>🏥 <span style={{ fontWeight: 800, color: C.purple }}>{m2.dB}d</span></div>}
-                {m2.dFI > 0 && <div>⚠️ <span style={{ fontWeight: 800, color: C.red }}>{m2.dFI}</span></div>}
-                {m2.dFO > 0 && <div>🎓 <span style={{ fontWeight: 800, color: C.orange }}>{m2.dFO}d</span></div>}
-              </div>
-            </Card>
-          );
-        })}
 
-        <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "18px 0 10px" }}>Pedidos pendentes {pend.length > 0 && <span style={{ background: C.redBg, color: C.red, padding: "2px 8px", borderRadius: 8, fontSize: 12, fontWeight: 800, marginLeft: 8 }}>{pend.length}</span>}</h2>
-        {pend.length === 0 ? (
-          <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}><div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: C.green }}>✓ Sem pedidos pendentes!</div></Card>
-        ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); return (
-          <Card key={i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t ? t.Nome : p.ID_Terapeuta}</div>
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  {isLetivo && <span style={{ background: C.redBg, color: C.red, padding: "3px 8px", borderRadius: 6, fontSize: 9, fontWeight: 800 }}>🔴 LETIVO</span>}
-                  <span style={{ background: mi.color + "18", color: mi.color, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{mi.icon} {mi.short}</span>
+        {/* ═══ TAB SEMANA ═══ */}
+        {adminTab === "semana" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <button onClick={() => setSemanaOffset(o => o - 1)} style={{ background: C.white, border: "1px solid " + C.grayLight, borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: "pointer", color: C.dark }}>‹</button>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 15, fontWeight: 900, color: C.dark }}>📅 {semLabel}</div>
+                <div style={{ fontSize: 10, color: C.darkSoft }}>{semanaOffset === 0 ? "Esta semana" : semanaOffset === 1 ? "Próxima semana" : semanaOffset === -1 ? "Semana passada" : ""}</div>
+              </div>
+              <button onClick={() => setSemanaOffset(o => o + 1)} style={{ background: C.white, border: "1px solid " + C.grayLight, borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: "pointer", color: C.dark }}>›</button>
+            </div>
+
+            {(() => {
+              const hojeStr = hoje.toISOString().slice(0, 10);
+              const ausHoje = data.terapeutas.filter(t => terapAusenteDia(t.ID, hojeStr) || fechoDia(hojeStr));
+              const presHoje = data.terapeutas.length - ausHoje.length;
+              return (
+                <Card delay={0} style={{ marginBottom: 10, background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}>
+                  <div style={{ display: "flex", justifyContent: "space-around", textAlign: "center" }}>
+                    <div><div style={{ fontSize: 24, fontWeight: 900, color: C.green }}>{presHoje}</div><div style={{ fontSize: 9, color: C.darkSoft, fontWeight: 700, textTransform: "uppercase" }}>A trabalhar hoje</div></div>
+                    <div style={{ width: 1, background: C.grayLight }} />
+                    <div><div style={{ fontSize: 24, fontWeight: 900, color: ausHoje.length > 0 ? C.red : C.gray }}>{ausHoje.length}</div><div style={{ fontSize: 9, color: C.darkSoft, fontWeight: 700, textTransform: "uppercase" }}>Ausentes hoje</div></div>
+                  </div>
+                </Card>
+              );
+            })()}
+
+            <Card delay={0.05} style={{ padding: 0, overflow: "hidden" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr " + "40px ".repeat(5), background: C.grayBg, borderBottom: "1px solid " + C.grayLight }}>
+                <div style={{ padding: "8px 10px", fontSize: 10, fontWeight: 800, color: C.darkSoft }}>Terapeuta</div>
+                {semDias.map((d, i) => {
+                  const isHoje = d.toISOString().slice(0, 10) === hoje.toISOString().slice(0, 10);
+                  return <div key={i} style={{ padding: "8px 2px", fontSize: 9, fontWeight: 800, color: isHoje ? C.teal : C.gray, textAlign: "center" }}>{nomeDia[i]}<br/><span style={{ fontSize: 11, fontWeight: 900 }}>{d.getDate()}</span></div>;
+                })}
+              </div>
+              {data.terapeutas.map((t, ti) => (
+                <div key={t.ID} style={{ display: "grid", gridTemplateColumns: "1fr " + "40px ".repeat(5), borderBottom: ti < data.terapeutas.length - 1 ? "1px solid " + C.grayLight : "none", background: ti % 2 === 0 ? C.white : C.grayBg }}>
+                  <div style={{ padding: "6px 10px", fontSize: 11, fontWeight: 600, color: C.dark, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{t.Nome.split(" ")[0]} {(t.Nome.split(" ").pop() || "")}</div>
+                  {semStr.map((dStr, di) => {
+                    const fecho = fechoDia(dStr);
+                    if (fecho) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.gray }} title={"Fecho: " + fecho.Nome}>🔒</div>;
+                    const aus = terapAusenteDia(t.ID, dStr);
+                    if (aus) {
+                      const mi = motivoInfo(aus.Motivo);
+                      return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }} title={mi.label + (aus.Estado === "Pendente" ? " (pendente)" : "")}><span style={{ opacity: aus.Estado === "Pendente" ? 0.5 : 1 }}>{mi.icon}</span></div>;
+                    }
+                    return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.green }}>✓</div>;
+                  })}
                 </div>
-              </div>
-              <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {p["Dias Úteis"]}d</div>
-              {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, fontStyle: "italic", marginTop: 3 }}>"{p.Observações}"</div>}
-              <FileBadge url={p.Ficheiro} />
-            </div>
-            <div style={{ marginBottom: 8 }}>
-              <input type="text" placeholder="Observação da gestão (opcional)" value={obsGestao[p._linha] || ""} onChange={e => setObsGestao(o => ({ ...o, [p._linha]: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 10, border: "2px solid " + C.grayLight, fontSize: 12, color: C.dark, background: C.grayBg }} />
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <Btn onClick={() => handle(p._linha, "Aprovado")} disabled={upd === p._linha} variant="success" style={{ flex: 1, padding: 10 }}>✓ Aprovar</Btn>
-              <Btn onClick={() => handle(p._linha, "Rejeitado")} disabled={upd === p._linha} variant="danger" style={{ flex: 1, padding: 10 }}>✕ Rejeitar</Btn>
-            </div>
-          </Card>
-        ); })}
+              ))}
+            </Card>
 
-        {hist.length > 0 && (
-          <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "18px 0 8px" }}>
-              <h3 style={{ fontSize: 13, fontWeight: 700, color: C.gray, margin: 0 }}>Histórico</h3>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, padding: "0 4px" }}>
+              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
+                <span key={i} style={{ fontSize: 9, color: C.darkSoft, fontWeight: 600 }}>{x.i} {x.l}</span>
+              ))}
+              <span style={{ fontSize: 9, color: C.gray, fontWeight: 600, fontStyle: "italic" }}>· semi-transparente = pendente</span>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ TAB EQUIPA ═══ */}
+        {adminTab === "equipa" && (
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Equipa</h2>
+            {data.terapeutas.map((t, idx) => {
+              const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
+              const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
+              const m2 = calc(t, ap2, a2, data.periodos, data.fecho);
+              return (
+                <Card key={t.ID} delay={idx * 0.05} style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
+                  <Ring value={m2.ef} max={m2.mMin} size={48} stroke={5} color={m2.sc}><span style={{ fontSize: 11, fontWeight: 900, color: m2.sc }}>{m2.pM}%</span></Ring>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, fontWeight: 800, color: C.dark }}>{t.Nome}</span><span>{m2.pH >= 95 ? "🟢" : m2.pH >= 80 ? "🟡" : "🔴"}</span></div>
+                    <div style={{ fontSize: 10, color: C.darkSoft }}>{m2.ef}/{m2.mMin} · {t["Área"]} · {m2.quad ? m2.quad.meses : ""}</div>
+                    <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
+                    <div>🌴 <span style={{ fontWeight: 800, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</span></div>
+                    {m2.dB > 0 && <div>🏥 <span style={{ fontWeight: 800, color: C.purple }}>{m2.dB}d</span></div>}
+                    {m2.dFI > 0 && <div>⚠️ <span style={{ fontWeight: 800, color: C.red }}>{m2.dFI}</span></div>}
+                    {m2.dFO > 0 && <div>🎓 <span style={{ fontWeight: 800, color: C.orange }}>{m2.dFO}d</span></div>}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ═══ TAB PENDENTES ═══ */}
+        {adminTab === "pendentes" && (
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Pedidos pendentes {pend.length > 0 && <span style={{ background: C.redBg, color: C.red, padding: "2px 8px", borderRadius: 8, fontSize: 12, fontWeight: 800, marginLeft: 8 }}>{pend.length}</span>}</h2>
+            {pend.length === 0 ? (
+              <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}><div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: C.green }}>✓ Sem pedidos pendentes!</div></Card>
+            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); return (
+              <Card key={i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t ? t.Nome : p.ID_Terapeuta}</div>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      {isLetivo && <span style={{ background: C.redBg, color: C.red, padding: "3px 8px", borderRadius: 6, fontSize: 9, fontWeight: 800 }}>🔴 LETIVO</span>}
+                      <span style={{ background: mi.color + "18", color: mi.color, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{mi.icon} {mi.short}</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {p["Dias Úteis"]}d</div>
+                  {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, fontStyle: "italic", marginTop: 3 }}>"{p.Observações}"</div>}
+                  <FileBadge url={p.Ficheiro} />
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <input type="text" placeholder="Observação da gestão (opcional)" value={obsGestao[p._linha] || ""} onChange={e => setObsGestao(o => ({ ...o, [p._linha]: e.target.value }))} style={{ width: "100%", padding: 10, borderRadius: 10, border: "2px solid " + C.grayLight, fontSize: 12, color: C.dark, background: C.grayBg }} />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Btn onClick={() => handle(p._linha, "Aprovado")} disabled={upd === p._linha} variant="success" style={{ flex: 1, padding: 10 }}>✓ Aprovar</Btn>
+                  <Btn onClick={() => handle(p._linha, "Rejeitado")} disabled={upd === p._linha} variant="danger" style={{ flex: 1, padding: 10 }}>✕ Rejeitar</Btn>
+                </div>
+              </Card>
+            ); })}
+          </div>
+        )}
+
+        {/* ═══ TAB REGISTAR FALTA ═══ */}
+        {adminTab === "falta" && (
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>⚠️ Registar falta</h2>
+            {faltaDone ? (
+              <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}>
+                <div style={{ textAlign: "center", padding: 16, animation: "pop 0.4s ease" }}><div style={{ fontSize: 40 }}>✅</div><div style={{ fontSize: 14, fontWeight: 800, color: C.green, marginTop: 8 }}>Falta registada!</div></div>
+              </Card>
+            ) : (
+              <Card delay={0}>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Terapeuta</label>
+                  <select value={faltaTer} onChange={e => setFaltaTer(e.target.value)} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }}>
+                    <option value="">Seleciona...</option>
+                    {data.terapeutas.map(t => <option key={t.ID} value={t.ID}>{t.Nome}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Tipo</label>
+                  <select value={faltaMotivo} onChange={e => setFaltaMotivo(e.target.value)} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }}>
+                    <option value="Falta Injustificada">Falta Injustificada</option>
+                    <option value="Falta Justificada">Falta Justificada</option>
+                    <option value="Baixa Médica">Baixa Médica</option>
+                  </select>
+                </div>
+                {["inicio", "fim"].map(k => (
+                  <div key={k} style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>{k === "inicio" ? "De" : "Até"}</label>
+                    <input type="date" value={k === "inicio" ? faltaInicio : faltaFim} onChange={e => k === "inicio" ? setFaltaInicio(e.target.value) : setFaltaFim(e.target.value)} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }} />
+                  </div>
+                ))}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Nota</label>
+                  <input type="text" value={faltaNota} onChange={e => setFaltaNota(e.target.value)} placeholder="Ex: Não apareceu, não avisou" style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }} />
+                </div>
+                {faltaMotivo === "Falta Injustificada" && <div style={{ background: C.redBg, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 14 }}>⚠️ A terapeuta verá esta falta no seu perfil.</div>}
+                <Btn onClick={submitFalta} disabled={faltaSub} variant="danger">{faltaSub ? "A registar..." : "Registar falta"}</Btn>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* ═══ TAB HISTÓRICO ═══ */}
+        {adminTab === "historico" && (
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: 0 }}>Histórico</h2>
               <div style={{ display: "flex", gap: 3 }}>
                 {[{ k: "todos", l: "Tudo" }, { k: "ferias", l: "🌴" }, { k: "baixas", l: "🏥" }, { k: "faltas", l: "⚠️" }, { k: "formacao", l: "🎓" }].map(f => (
                   <button key={f.k} onClick={() => setFiltro(f.k)} style={{ background: filtro === f.k ? C.tealLight : C.white, border: "1px solid " + (filtro === f.k ? C.tealSoft : C.grayLight), borderRadius: 8, padding: "4px 7px", fontSize: 10, fontWeight: 700, color: filtro === f.k ? C.tealDark : C.gray, cursor: "pointer" }}>{f.l}</button>
                 ))}
               </div>
             </div>
-            {histFilt.slice(0, 12).map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; return (
+            {hist.length === 0 ? (
+              <Card><div style={{ textAlign: "center", padding: 20, color: C.gray }}><div style={{ fontSize: 36 }}>📋</div><div style={{ fontSize: 13, marginTop: 6 }}>Sem histórico</div></div></Card>
+            ) : histFilt.slice(0, 20).map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; return (
               <div key={i} style={{ background: C.white, borderRadius: 14, padding: "9px 14px", border: "1px solid " + C.grayLight, marginBottom: 4, opacity: 0.65, fontSize: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div><span style={{ fontWeight: 700 }}>{t ? t.Nome : p.ID_Terapeuta}</span><span style={{ color: C.gray, marginLeft: 6, fontSize: 10 }}>{mi.icon} {fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? "→" + fmtD(p["Data Fim"]) : ""}</span></div>
                   <span style={{ background: e.bg, color: e.c, padding: "2px 7px", borderRadius: 6, fontSize: 9, fontWeight: 700 }}>{e.icon}</span>
                 </div>
+                {p["Resposta Gestão"] && <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 2 }}>💬 {p["Resposta Gestão"]}</div>}
                 {p.Ficheiro && <FileBadge url={p.Ficheiro} />}
               </div>
             ); })}
-          </>
+          </div>
         )}
+      </div>
+
+      {/* Bottom nav */}
+      <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: C.white, borderTop: "1px solid " + C.grayLight, display: "flex", justifyContent: "space-around", padding: "6px 0 12px", boxShadow: "0 -4px 20px rgba(0,0,0,0.04)" }}>
+        {adminTabs.map(tb => (
+          <button key={tb.id} onClick={() => setAdminTab(tb.id)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 1, color: adminTab === tb.id ? C.teal : C.gray, padding: "2px 6px", transition: "all 0.2s", position: "relative" }}>
+            <span style={{ fontSize: 18, transform: adminTab === tb.id ? "scale(1.15)" : "scale(1)", transition: "transform 0.2s" }}>{tb.icon}</span>
+            <span style={{ fontSize: 8, fontWeight: adminTab === tb.id ? 800 : 500 }}>{tb.l}</span>
+            {adminTab === tb.id && <div style={{ width: 4, height: 4, borderRadius: "50%", background: C.teal, marginTop: -1 }} />}
+            {tb.badge > 0 && <div style={{ position: "absolute", top: -2, right: -2, background: C.red, color: C.white, fontSize: 8, fontWeight: 800, width: 16, height: 16, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>{tb.badge}</div>}
+          </button>
+        ))}
       </div>
     </div>
   );
 }
-
 /* ═══════════════════════ LOADING ═══════════════════════ */
 function Loading() {
   return (
@@ -842,4 +1021,3 @@ export default function App() {
   if (!t) { setUser(null); return null; }
   return <TherapistView data={data} terap={t} onLogout={() => setUser(null)} onRefresh={refresh} onAddAusencia={addAus} />;
 }
-
