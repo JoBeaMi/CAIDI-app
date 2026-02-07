@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-const API_URL = "https://script.google.com/macros/s/AKfycbw7282dmHxfF9gmi2Zf_LyCvtjrEUPMswmyAhFusbviLD2m-_9T11zEFAqwmU_Eu1Y5Pw/exec";
+/* ═══════════════════════════════════════════════════════════════
+   CONFIGURAÇÃO — Cola aqui o URL do Google Apps Script
+   ═══════════════════════════════════════════════════════════════ */
+const API_URL = "https://script.google.com/macros/s/AKfycbwzwj_m6aZyIyGkYqK2jXiZ8BXiiB5Tax6_ZtaUS9A2n9R48oCpo291xPYwIBcnEbUD_A/exec";
 /* ⚠️  Após atualizar o Apps Script, faz novo deploy e cola o URL atualizado acima */
 
 /* ═══════════════════════ PALETA CAIDI ═══════════════════════ */
@@ -85,51 +88,94 @@ function quadAtual(quads) {
   return quads[quads.length - 1] || null;
 }
 
-function calc(t, apoios, aus, periodos, fecho) {
+/* ═══════════════════════ HORÁRIO HELPERS ═══════════════════════ */
+function getHorario(horarios, tId) {
+  if (!horarios || !horarios.length) return null;
+  const h = horarios.find(x => x.ID_Terapeuta === tId);
+  if (!h) return null;
+  const dias = [0, Number(h.Seg||0), Number(h.Ter||0), Number(h.Qua||0), Number(h.Qui||0), Number(h.Sex||0), 0];
+  const diasTrab = dias.filter(d => d > 0).length;
+  if (diasTrab === 0) return null;
+  return { dias, diasTrab, diasFeriasCAIDI: Math.round(diasTrab / 5 * 22) };
+}
+function trabalhaDia(hor, dayOfWeek) {
+  if (!hor) return dayOfWeek >= 1 && dayOfWeek <= 5;
+  return hor.dias[dayOfWeek] > 0;
+}
+function contarDiasTrabFecho(fecho, hor) {
+  let count = 0;
+  for (const f of fecho) {
+    const d = new Date(f["Data Início"]), fim = new Date(f["Data Fim"]);
+    while (d <= fim) { if (trabalhaDia(hor, d.getDay())) count++; d.setDate(d.getDate() + 1); }
+  }
+  return count;
+}
+function contarDiasTrabAus(ausList, hor) {
+  let count = 0;
+  for (const a of ausList) {
+    if (Number(a["Dias Úteis"] || 0) === 0.5) {
+      const d = new Date(a["Data Início"]);
+      if (trabalhaDia(hor, d.getDay())) count += 0.5;
+    } else {
+      const d = new Date(a["Data Início"]), fim = new Date(a["Data Fim"]);
+      while (d <= fim) { if (d.getDay() >= 1 && d.getDay() <= 5 && trabalhaDia(hor, d.getDay())) count++; d.setDate(d.getDate() + 1); }
+    }
+  }
+  return count;
+}
+
+function calc(t, apoios, aus, periodos, fecho, horarios) {
   const quads = buildQuadrimestres(periodos);
   const q = quadAtual(quads);
   if (!q) return emptyMetrics();
   const hojeStr = new Date().toISOString().slice(0, 10);
+  const hor = getHorario(horarios, t.ID);
 
   const dLetivoTotal = contarDiasUteis(q.letivoInicio, q.letivoFim);
   const dQuadTotal = contarDiasUteis(q.qInicio, q.qFim);
   const dQuadHoje = contarDiasUteis(q.qInicio, hojeStr > q.qFim ? q.qFim : hojeStr);
   const hLD = Number(t["Horas Letivas"]) / 5;
 
-  // Ausências neste quadrimestre (aprovadas)
   const ausQ = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= q.qFim && a["Data Fim"] >= q.qInicio);
   const dB  = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const dFJ = ausQ.filter(a => a.Motivo === "Falta Justificada").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const dFI = ausQ.filter(a => a.Motivo === "Falta Injustificada").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const dFO = ausQ.filter(a => a.Motivo === "Formação").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
 
-  // META = dias úteis letivos × horas/dia (- baixas)
   const mMin = Math.round(hLD * (dLetivoTotal - dB));
   const mE2 = Math.round(mMin * 1.05);
   const progQuad = dQuadTotal > 0 ? dQuadHoje / dQuadTotal : 1;
   const mH = Math.round(mMin * progQuad);
-
-  // Apoios efetivados neste quadrimestre
   const ef = apoios.filter(a => a.Tipo === "Efetivado" && a.Data >= q.qInicio && a.Data <= q.qFim).length;
-
   const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
   const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
 
-  // Férias (globais) — fecho CAIDI conta como férias obrigatórias já gastas
+  // ── Férias com horário proporcional ──
+  const diasTrab = hor ? hor.diasTrab : 5;
+  const diasFeriasCAIDI = hor ? hor.diasFeriasCAIDI : 22;
+  const fechoCAIDI = contarDiasTrabFecho(fecho, hor);
   const tF = fecho.reduce((s, f) => s + Number(f["Dias Úteis"] || 0), 0);
-  const fUPedidas = aus.filter(a => a.Motivo === "Férias (Obrigatórias)" && (a.Estado === "Aprovado" || a.Estado === "Pendente")).reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-  const fU = fUPedidas + tF; // total obrigatórias = pedidas + fecho
+
+  const feriasPedidas = aus.filter(a => a.Motivo.includes("Férias") && (a.Estado === "Aprovado" || a.Estado === "Pendente"));
+  const feriasCAIDI = contarDiasTrabAus(feriasPedidas, hor);
+  const fUPedidas = feriasPedidas.filter(a => a.Motivo === "Férias (Obrigatórias)").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+  const fU = fUPedidas + tF;
   const bU = aus.filter(a => a.Motivo === "Férias (Bónus)" && (a.Estado === "Aprovado" || a.Estado === "Pendente")).reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-  const oR = Math.max(Number(t["Dias Férias"]) - fU, 0), dBn = Number(t["Dias Bónus Ganhos"] || 0), bR = Math.max(dBn - bU, 0);
+  const oR = Math.max(Number(t["Dias Férias"]) - fU, 0);
+  const dBn = Number(t["Dias Bónus Ganhos"] || 0), bR = Math.max(dBn - bU, 0);
+  const limiteCAIDI = diasFeriasCAIDI;
+  const usadosCAIDI = fechoCAIDI + feriasCAIDI;
+  const restamCAIDI = Math.max(limiteCAIDI - usadosCAIDI, 0);
+
   const fE2 = Math.max(mE2 - ef, 0);
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mE2, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, progQuad: Math.round(progQuad * 100), hLD };
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mE2, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, progQuad: Math.round(progQuad * 100), hLD, hor, diasTrab, diasFeriasCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mE2: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dQuadTotal: 0, dQuadHoje: 0, progQuad: 0, hLD: 0 };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mE2: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dQuadTotal: 0, dQuadHoje: 0, progQuad: 0, hLD: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22 };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -165,6 +211,7 @@ function Ring({ value, max, size, stroke, color, children }) {
 }
 const fmtD = d => { if (!d) return ""; const [y,m,day] = String(d).split("-"); return day + "/" + m; };
 const fmtDF = d => { if (!d) return ""; const [y,m,day] = String(d).split("-"); return day + "/" + m + "/" + y; };
+const fmtDias = (d, per) => { const dias = Number(d) || 0; const label = dias === 0.5 ? "½d" : dias + "d"; const ico = per === "Manhã" ? " 🌅" : per === "Tarde" ? " 🌇" : ""; return label + ico; };
 const ini = n => n ? n.split(" ").map(w => w[0]).join("").slice(0,2).toUpperCase() : "?";
 
 const CSS = "@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap');\n* { box-sizing: border-box; }\nbody { margin: 0; font-family: 'DM Sans', sans-serif; background: " + C.grayBg + "; }\n@keyframes up { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }\n@keyframes slideUp { from { transform:translateY(100%); } to { transform:translateY(0); } }\n@keyframes pop { 0% { transform:scale(0.9); opacity:0; } 100% { transform:scale(1); opacity:1; } }\n@keyframes float { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-6px); } }\ninput:focus, select:focus { outline: none; border-color: " + C.teal + " !important; box-shadow: 0 0 0 3px " + C.tealLight + " !important; }\nbutton { font-family: 'DM Sans', sans-serif; }\nselect { font-family: 'DM Sans', sans-serif; }\n::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-thumb { background: " + C.grayLight + "; border-radius: 4px; }";
@@ -280,6 +327,7 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
   const [fD, setFD] = useState({ inicio: "", fim: "" });
   const [fN, setFN] = useState("");
   const [justLetivo, setJustLetivo] = useState("");
+  const [periodo, setPeriodo] = useState("dia");
   const [motivo, setMotivo] = useState(type === "ferias" ? "" : type === "baixa" ? "Baixa Médica" : type === "formacao" ? "Formação" : "Falta Justificada");
   const [ficheiro, setFicheiro] = useState(null);
   const [nomeF, setNomeF] = useState("");
@@ -289,6 +337,8 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
   const fileRef = useRef(null);
   const isFerias = type === "ferias";
   const needsUpload = type !== "ferias";
+
+  const mesmoDia = fD.inicio && fD.fim && fD.inicio === fD.fim;
 
   // Detetar se datas caem em período letivo
   const emLetivo = (() => {
@@ -304,20 +354,39 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
   const handleFile = (e) => { const f = e.target.files[0]; if (!f) return; if (f.size > 10*1024*1024) { alert("Máx 10MB"); return; } setNomeF(f.name); setFicheiro(f); };
   const removeFile = () => { setFicheiro(null); setNomeF(""); if (fileRef.current) fileRef.current.value = ""; };
 
+  // Calcular quantos dias de trabalho CAIDI este pedido usa
+  const diasTrabPedido = (() => {
+    if (!fD.inicio || !fD.fim || !metrics.hor) return 0;
+    if (mesmoDia && periodo !== "dia") {
+      const d = new Date(fD.inicio);
+      return trabalhaDia(metrics.hor, d.getDay()) ? 0.5 : 0;
+    }
+    let count = 0;
+    const d = new Date(fD.inicio), fim = new Date(fD.fim);
+    while (d <= fim) { if (d.getDay() >= 1 && d.getDay() <= 5 && trabalhaDia(metrics.hor, d.getDay())) count++; d.setDate(d.getDate() + 1); }
+    return count;
+  })();
+  const ultrapassaCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI < diasTrabPedido;
+  const esgotouCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI <= 0;
+
   const submit = async () => {
     if (!fD.inicio || !fD.fim) return;
     if (isFerias && emLetivo && !justLetivo.trim()) { setErrMsg("Pedido em período letivo — indica o motivo da exceção."); return; }
+    if (esgotouCAIDI) { setErrMsg("Já usaste todos os dias de trabalho disponíveis no CAIDI. Contacta a gestão."); return; }
+    if (ultrapassaCAIDI) { setErrMsg("Este pedido usa " + diasTrabPedido + " dias de trabalho mas só tens " + metrics.restamCAIDI + " disponíveis. Ajusta as datas."); return; }
     setSub(true); setErrMsg("");
-    const dias = contarDiasUteis(fD.inicio, fD.fim);
+    let dias = contarDiasUteis(fD.inicio, fD.fim);
+    if (mesmoDia && periodo !== "dia") dias = 0.5;
     let mot = motivo;
     if (isFerias) mot = metrics.oR > 0 ? "Férias (Obrigatórias)" : "Férias (Bónus)";
-    const notaFinal = emLetivo && isFerias ? (fN ? fN + " | " : "") + "⚠️ LETIVO (" + emLetivo + "): " + justLetivo : fN;
+    const periodoLabel = mesmoDia && periodo !== "dia" ? (periodo === "manha" ? " (Manhã)" : " (Tarde)") : "";
+    const notaFinal = (emLetivo && isFerias ? (fN ? fN + " | " : "") + "⚠️ LETIVO (" + emLetivo + "): " + justLetivo : fN) + periodoLabel;
     let ficheiroData = null;
     if (ficheiro) { try { ficheiroData = await fileToBase64(ficheiro); } catch {} }
     try {
-      const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal, ficheiro: ficheiroData });
+      const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal, periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
       const linkReal = (resp && resp.ficheiro && resp.ficheiro.indexOf("http") === 0) ? resp.ficheiro : "";
-      onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
+      onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
       setDone(true); setTimeout(onClose, 1800);
     } catch (err) { setErrMsg("Erro: " + err.message); }
     setSub(false);
@@ -353,6 +422,19 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
                 <input type="date" value={fD[k]} onChange={e => setFD(d => ({ ...d, [k]: e.target.value }))} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }} />
               </div>
             ))}
+            {mesmoDia && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 6 }}>Duração</label>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[{ v: "dia", l: "☀️ Dia inteiro", d: "1 dia" }, { v: "manha", l: "🌅 Manhã", d: "0.5 dia" }, { v: "tarde", l: "🌇 Tarde", d: "0.5 dia" }].map(p => (
+                    <button key={p.v} onClick={() => setPeriodo(p.v)} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, border: periodo === p.v ? "2px solid " + C.teal : "2px solid " + C.grayLight, background: periodo === p.v ? C.tealLight : C.grayBg, cursor: "pointer", transition: "all 0.2s" }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: periodo === p.v ? C.tealDark : C.dark }}>{p.l}</div>
+                      <div style={{ fontSize: 9, color: C.gray, marginTop: 2 }}>{p.d}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>
                 {type === "baixa" ? "Motivo" : type === "formacao" ? "Nome da formação" : type === "falta" ? "Justificação" : "Nota (opcional)"}
@@ -397,11 +479,26 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
               </div>
             )}
             {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR} dias obrigatórios</strong> por marcar</div>}
+            {isFerias && metrics.diasTrab < 5 && fD.inicio && fD.fim && diasTrabPedido > 0 && (
+              <div style={{ background: C.blueBg, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: C.blue, fontWeight: 600, marginBottom: 16 }}>📊 Este pedido usa <strong>{diasTrabPedido} dia{diasTrabPedido !== 1 ? "s" : ""} de trabalho</strong> no CAIDI. Tens <strong>{metrics.restamCAIDI}</strong> disponíve{metrics.restamCAIDI !== 1 ? "is" : "l"}.</div>
+            )}
+            {esgotouCAIDI && (
+              <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, marginBottom: 14, border: "1px solid #f5c6c0" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.red }}>🔴 Dias de trabalho esgotados</div>
+                <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>Organizas as tuas {Number(terap["Horas Letivas"])}h em {metrics.diasTrab} dias por semana. Já usaste os {metrics.diasFeriasCAIDI} dias de férias que coincidem com o teu horário. Se precisares de faltar, contacta a gestão.</div>
+              </div>
+            )}
+            {ultrapassaCAIDI && !esgotouCAIDI && (
+              <div style={{ background: C.redBg, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 16 }}>⚠️ Este pedido usa <strong>{diasTrabPedido} dias de trabalho</strong> mas só tens <strong>{metrics.restamCAIDI}</strong>. Ajusta as datas.</div>
+            )}
+            {isFerias && metrics.diasTrab < 5 && !esgotouCAIDI && !ultrapassaCAIDI && metrics.restamCAIDI > 0 && metrics.restamCAIDI <= 3 && (
+              <div style={{ background: C.yellowBg, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: "#E17055", fontWeight: 600, marginBottom: 16 }}>⚠️ Restam-te <strong>{metrics.restamCAIDI} dias de trabalho</strong> disponíveis no CAIDI (de {metrics.diasFeriasCAIDI})</div>
+            )}
             {type === "baixa" && <div style={{ background: C.purpleBg, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: C.purple, fontWeight: 600, marginBottom: 16 }}>🏥 A baixa <strong>não desconta</strong> férias. A meta ajusta-se.</div>}
             {type === "formacao" && <div style={{ background: C.orangeBg, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: C.orange, fontWeight: 600, marginBottom: 16 }}>🎓 Formações <strong>não descontam</strong> férias nem meta.</div>}
             {type === "falta" && motivo === "Falta Injustificada" && <div style={{ background: C.redBg, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: C.red, fontWeight: 600, marginBottom: 16 }}>⚠️ Faltas injustificadas podem ter <strong>impacto na avaliação</strong>.</div>}
             {errMsg && <div style={{ background: C.redBg, color: C.red, padding: "8px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, marginBottom: 12 }}>⚠️ {errMsg}</div>}
-            <Btn onClick={submit} disabled={sub} variant={btnV[type]}>{sub ? "A enviar..." : "Enviar pedido"}</Btn>
+            <Btn onClick={submit} disabled={sub || esgotouCAIDI || ultrapassaCAIDI} variant={btnV[type]}>{sub ? "A enviar..." : esgotouCAIDI ? "Sem dias disponíveis" : ultrapassaCAIDI ? "Dias insuficientes" : "Enviar pedido"}</Btn>
           </>
         )}
       </div>
@@ -415,7 +512,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const [showForm, setShowForm] = useState(null);
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
   const ap = data.apoios.filter(a => a.ID_Terapeuta === terap.ID);
-  const m = calc(terap, ap, aus, data.periodos, data.fecho);
+  const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios);
   const saudePedidos = aus.filter(a => !a.Motivo.includes("Férias")).sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const pend = aus.filter(p => p.Estado === "Pendente").length;
@@ -619,6 +716,22 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 </div>
               ))}
             </Card>
+            {m.diasTrab < 5 && (
+              <Card delay={0.05} style={{ marginTop: 8, background: "linear-gradient(135deg, " + C.blueBg + ", " + C.white + ")", border: "1px solid #b8d4e3" }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: C.blue, marginBottom: 6 }}>📋 O teu horário no CAIDI</div>
+                <div style={{ fontSize: 11, color: C.darkSoft, lineHeight: 1.6 }}>
+                  O CAIDI permite-te concentrar as tuas <strong>{Number(terap["Horas Letivas"])}h semanais em {m.diasTrab} dias</strong>, dando-te {5 - m.diasTrab} dia{5 - m.diasTrab > 1 ? "s" : ""} livre{5 - m.diasTrab > 1 ? "s" : ""} por semana. Os dias de férias refletem esta organização: <strong>{m.diasFeriasCAIDI} dias coincidem com dias de trabalho</strong>.
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, padding: "8px 4px", borderTop: "1px solid #d4e6f1" }}>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.gray }}>{m.fechoCAIDI}</div><div style={{ fontSize: 8, color: C.gray }}>Fecho</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.blue }}>{m.feriasCAIDI}</div><div style={{ fontSize: 8, color: C.gray }}>Marcados</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: m.restamCAIDI <= 2 ? C.red : C.green }}>{m.restamCAIDI}</div><div style={{ fontSize: 8, color: C.gray }}>Disponíveis</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.tealDark }}>{m.diasFeriasCAIDI}</div><div style={{ fontSize: 8, color: C.gray }}>Total</div></div>
+                </div>
+                {m.restamCAIDI <= 2 && m.restamCAIDI > 0 && <div style={{ fontSize: 10, color: C.red, fontWeight: 700, marginTop: 6 }}>⚠️ Tens poucos dias de trabalho disponíveis.</div>}
+                {m.restamCAIDI <= 0 && <div style={{ fontSize: 10, color: C.red, fontWeight: 700, marginTop: 6 }}>🔴 Já usaste todos os dias de trabalho. Se precisares de faltar, contacta a gestão.</div>}
+              </Card>
+            )}
             <div style={{ marginTop: 12 }}><Btn onClick={() => setShowForm("ferias")}>📝 Pedir Férias</Btn></div>
             <h3 style={{ fontSize: 13, fontWeight: 800, color: C.dark, margin: "16px 0 8px" }}>📅 Fecho do CAIDI</h3>
             <Card delay={0.1} style={{ padding: 0, overflow: "hidden" }}>{data.fecho.map((f, i) => (<div key={i} style={{ padding: "10px 14px", borderBottom: i < data.fecho.length - 1 ? "1px solid " + C.grayLight : "none", display: "flex", justifyContent: "space-between", fontSize: 12, background: i % 2 ? C.white : C.grayBg }}><div><span style={{ fontWeight: 700, color: C.dark }}>{f.Nome}</span><br/><span style={{ fontSize: 10, color: C.gray }}>{fmtDF(f["Data Início"])}{f["Data Início"] !== f["Data Fim"] ? " → " + fmtDF(f["Data Fim"]) : ""}</span></div><span style={{ fontSize: 10, fontWeight: 800, color: C.darkSoft, background: C.grayLight, padding: "3px 8px", borderRadius: 6 }}>{f["Dias Úteis"]}d</span></div>))}</Card>
@@ -647,7 +760,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             ) : saudePedidos.map((p, i) => { const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; return (
               <Card key={i} delay={i * 0.04} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div><div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{mi.icon} {mi.label}</div><div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? " → " + fmtD(p["Data Fim"]) : ""} · {p["Dias Úteis"]}d</div></div>
+                  <div><div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{mi.icon} {mi.label}</div><div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? " → " + fmtD(p["Data Fim"]) : ""} · {fmtDias(p["Dias Úteis"], p["Período"])}</div></div>
                   <span style={{ background: e.bg, color: e.c, padding: "3px 9px", borderRadius: 8, fontSize: 10, fontWeight: 700 }}>{e.icon} {e.l}</span>
                 </div>
                 {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, fontStyle: "italic", marginTop: 4 }}>"{p.Observações}"</div>}
@@ -666,7 +779,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             : todosPedidos.map((p, i) => { const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; return (
               <Card key={i} delay={i * 0.03} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div><div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? " → " + fmtD(p["Data Fim"]) : ""}</div><div style={{ fontSize: 10, color: C.darkSoft, marginTop: 2 }}>{mi.icon} {mi.short} · {p["Dias Úteis"]}d</div></div>
+                  <div><div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? " → " + fmtD(p["Data Fim"]) : ""}</div><div style={{ fontSize: 10, color: C.darkSoft, marginTop: 2 }}>{mi.icon} {mi.short} · {fmtDias(p["Dias Úteis"], p["Período"])}</div></div>
                   <span style={{ background: e.bg, color: e.c, padding: "3px 9px", borderRadius: 8, fontSize: 10, fontWeight: 700 }}>{e.icon} {e.l}</span>
                 </div>
                 {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, fontStyle: "italic", marginTop: 4 }}>"{p.Observações}"</div>}
@@ -708,6 +821,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   const [faltaFim, setFaltaFim] = useState("");
   const [faltaMotivo, setFaltaMotivo] = useState("Falta Injustificada");
   const [faltaNota, setFaltaNota] = useState("");
+  const [faltaPeriodo, setFaltaPeriodo] = useState("dia");
   const [faltaSub, setFaltaSub] = useState(false);
   const [faltaDone, setFaltaDone] = useState(false);
 
@@ -722,10 +836,12 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
     if (!faltaTer || !faltaInicio || !faltaFim) return;
     setFaltaSub(true);
     const t = data.terapeutas.find(x => x.ID === faltaTer);
+    const mesmoDiaF = faltaInicio === faltaFim;
+    const periodoLabel = mesmoDiaF && faltaPeriodo !== "dia" ? (faltaPeriodo === "manha" ? " (Manhã)" : " (Tarde)") : "";
     try {
-      await apiPost({ action: "registarFaltaGestao", terapId: faltaTer, nome: t ? t.Nome : "", dataInicio: faltaInicio, dataFim: faltaFim, motivo: faltaMotivo, nota: faltaNota || "Registado pela gestão" });
+      await apiPost({ action: "registarFaltaGestao", terapId: faltaTer, nome: t ? t.Nome : "", dataInicio: faltaInicio, dataFim: faltaFim, motivo: faltaMotivo, nota: (faltaNota || "Registado pela gestão") + periodoLabel, periodo: mesmoDiaF ? faltaPeriodo : "dia" });
       setFaltaDone(true);
-      setTimeout(() => { setFaltaDone(false); setFaltaTer(""); setFaltaInicio(""); setFaltaFim(""); setFaltaNota(""); setFaltaMotivo("Falta Injustificada"); }, 1500);
+      setTimeout(() => { setFaltaDone(false); setFaltaTer(""); setFaltaInicio(""); setFaltaFim(""); setFaltaNota(""); setFaltaMotivo("Falta Injustificada"); setFaltaPeriodo("dia"); }, 1500);
       onRefresh();
     } catch (err) { alert("Erro: " + err.message); }
     setFaltaSub(false);
@@ -795,7 +911,9 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             {(() => {
               const hojeStr = hoje.toISOString().slice(0, 10);
               const ausHoje = data.terapeutas.filter(t => terapAusenteDia(t.ID, hojeStr) || fechoDia(hojeStr));
-              const presHoje = data.terapeutas.length - ausHoje.length;
+              const hojeDow = hoje.getDay();
+              const terapHoje = data.terapeutas.filter(t => { const h = getHorario(data.horarios, t.ID); return trabalhaDia(h, hojeDow); });
+              const presHoje = terapHoje.filter(t => !terapAusenteDia(t.ID, hojeStr) && !fechoDia(hojeStr)).length;
               return (
                 <Card delay={0} style={{ marginBottom: 10, background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}>
                   <div style={{ display: "flex", justifyContent: "space-around", textAlign: "center" }}>
@@ -821,6 +939,9 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                   {semStr.map((dStr, di) => {
                     const fecho = fechoDia(dStr);
                     if (fecho) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.gray }} title={"Fecho: " + fecho.Nome}>🔒</div>;
+                    const tHor = getHorario(data.horarios, t.ID);
+                    const dObj = new Date(dStr);
+                    if (tHor && !trabalhaDia(tHor, dObj.getDay())) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.grayLight, fontWeight: 700 }} title="Sem horário">—</div>;
                     const aus = terapAusenteDia(t.ID, dStr);
                     if (aus) {
                       const mi = motivoInfo(aus.Motivo);
@@ -833,7 +954,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             </Card>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, padding: "0 4px" }}>
-              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
+              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "—", l: "S/horário", c: C.gray }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
                 <span key={i} style={{ fontSize: 9, color: C.darkSoft, fontWeight: 600 }}>{x.i} {x.l}</span>
               ))}
               <span style={{ fontSize: 9, color: C.gray, fontWeight: 600, fontStyle: "italic" }}>· semi-transparente = pendente</span>
@@ -848,7 +969,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             {data.terapeutas.map((t, idx) => {
               const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
               const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
-              const m2 = calc(t, ap2, a2, data.periodos, data.fecho);
+              const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios);
               return (
                 <Card key={t.ID} delay={idx * 0.05} style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
                   <Ring value={m2.ef} max={m2.mMin} size={48} stroke={5} color={m2.sc}><span style={{ fontSize: 11, fontWeight: 900, color: m2.sc }}>{m2.pM}%</span></Ring>
@@ -858,6 +979,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
+                    {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/sem → " + m2.diasFeriasCAIDI + " dias CAIDI"}>📋 <span style={{ fontWeight: 800, color: m2.restamCAIDI <= 2 ? C.red : C.blue }}>{m2.restamCAIDI}</span><span style={{ color: C.gray }}>/{m2.diasFeriasCAIDI}</span></div>}
                     <div>🌴 <span style={{ fontWeight: 800, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</span></div>
                     {m2.dB > 0 && <div>🏥 <span style={{ fontWeight: 800, color: C.purple }}>{m2.dB}d</span></div>}
                     {m2.dFI > 0 && <div>⚠️ <span style={{ fontWeight: 800, color: C.red }}>{m2.dFI}</span></div>}
@@ -875,7 +997,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Pedidos pendentes {pend.length > 0 && <span style={{ background: C.redBg, color: C.red, padding: "2px 8px", borderRadius: 8, fontSize: 12, fontWeight: 800, marginLeft: 8 }}>{pend.length}</span>}</h2>
             {pend.length === 0 ? (
               <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}><div style={{ textAlign: "center", fontSize: 13, fontWeight: 700, color: C.green }}>✓ Sem pedidos pendentes!</div></Card>
-            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); return (
+            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.apoios.filter(a => a.ID_Terapeuta === t.ID), data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios) : null; return (
               <Card key={i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -885,7 +1007,12 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       <span style={{ background: mi.color + "18", color: mi.color, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700 }}>{mi.icon} {mi.short}</span>
                     </div>
                   </div>
-                  <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {p["Dias Úteis"]}d</div>
+                  <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {fmtDias(p["Dias Úteis"], p["Período"])}</div>
+                  {m2t && m2t.diasTrab < 5 && p.Motivo.includes("Férias") && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.blueBg, color: C.blue, padding: "3px 8px", borderRadius: 6, fontSize: 10, fontWeight: 700, marginTop: 4 }}>
+                      📋 {m2t.diasTrab}d/sem · CAIDI: {m2t.restamCAIDI}/{m2t.diasFeriasCAIDI} disponíveis
+                    </div>
+                  )}
                   {p.Observações && <div style={{ fontSize: 11, color: C.darkSoft, fontStyle: "italic", marginTop: 3 }}>"{p.Observações}"</div>}
                   <FileBadge url={p.Ficheiro} />
                 </div>
@@ -932,6 +1059,19 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     <input type="date" value={k === "inicio" ? faltaInicio : faltaFim} onChange={e => k === "inicio" ? setFaltaInicio(e.target.value) : setFaltaFim(e.target.value)} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }} />
                   </div>
                 ))}
+                {faltaInicio && faltaFim && faltaInicio === faltaFim && (
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 6 }}>Duração</label>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      {[{ v: "dia", l: "☀️ Dia inteiro", d: "1 dia" }, { v: "manha", l: "🌅 Manhã", d: "0.5 dia" }, { v: "tarde", l: "🌇 Tarde", d: "0.5 dia" }].map(p => (
+                        <button key={p.v} onClick={() => setFaltaPeriodo(p.v)} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, border: faltaPeriodo === p.v ? "2px solid " + C.teal : "2px solid " + C.grayLight, background: faltaPeriodo === p.v ? C.tealLight : C.grayBg, cursor: "pointer", transition: "all 0.2s" }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: faltaPeriodo === p.v ? C.tealDark : C.dark }}>{p.l}</div>
+                          <div style={{ fontSize: 9, color: C.gray, marginTop: 2 }}>{p.d}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Nota</label>
                   <input type="text" value={faltaNota} onChange={e => setFaltaNota(e.target.value)} placeholder="Ex: Não apareceu, não avisou" style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }} />
