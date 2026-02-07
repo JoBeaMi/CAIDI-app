@@ -143,12 +143,19 @@ function calc(t, apoios, aus, periodos, fecho, horarios) {
   const dFO = ausQ.filter(a => a.Motivo === "Formação").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
 
   const mMin = Math.round(hLD * (dLetivoTotal - dB));
+  const mBonus = Math.round(mMin * 0.85);
   const mE2 = Math.round(mMin * 1.05);
+  const hSem = Number(t["Horas Semanais"]) / 5;
+  const mE3 = Math.round(hSem * (dLetivoTotal - dB) * 1.05);
   const progQuad = dQuadTotal > 0 ? dQuadHoje / dQuadTotal : 1;
   const mH = Math.round(mMin * progQuad);
   const ef = apoios.filter(a => a.Tipo === "Efetivado" && a.Data >= q.qInicio && a.Data <= q.qFim).length;
   const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
   const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
+  // Cálculo de € ganhos
+  const euros5 = ef > mE2 ? Math.min(ef, mE3) - mE2 : 0;
+  const euros10 = ef > mE3 ? ef - mE3 : 0;
+  const eurosTotal = (euros5 * 5) + (euros10 * 10);
 
   // ── Férias com horário proporcional ──
   const diasTrab = hor ? hor.diasTrab : 5;
@@ -167,15 +174,17 @@ function calc(t, apoios, aus, periodos, fecho, horarios) {
   const usadosCAIDI = fechoCAIDI + feriasCAIDI;
   const restamCAIDI = Math.max(limiteCAIDI - usadosCAIDI, 0);
 
+  const dExtraTotal = Math.max(dQuadTotal - dLetivoTotal, 0);
+  const passado = new Date().toISOString().slice(0,10) > q.qFim;
   const fE2 = Math.max(mE2 - ef, 0);
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mE2, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, progQuad: Math.round(progQuad * 100), hLD, hor, diasTrab, diasFeriasCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI };
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mE2: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dQuadTotal: 0, dQuadHoje: 0, progQuad: 0, hLD: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22 };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -510,6 +519,7 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
 function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const [tab, setTab] = useState("inicio");
   const [showForm, setShowForm] = useState(null);
+  const [quadIdx, setQuadIdx] = useState(null); // null = atual
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
   const ap = data.apoios.filter(a => a.ID_Terapeuta === terap.ID);
   const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios);
@@ -520,6 +530,49 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const isADM = terap["Área"] === "ADM";
   const tabs = [{ id: "inicio", icon: "🏠", l: "Início" }, ...(!isADM ? [{ id: "meta", icon: "🎯", l: "Meta" }] : []), { id: "ferias", icon: "🌴", l: "Férias" }, { id: "ausencias", icon: "📑", l: "Ausências" }, { id: "pedidos", icon: "📋", l: "Pedidos" }];
   const q = m.quad;
+
+  // Métricas para um quadrimestre específico (para navegação)
+  const calcQuad = (qx) => {
+    if (!qx) return m;
+    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hLD = Number(terap["Horas Letivas"]) / 5;
+    const hSem = Number(terap["Horas Semanais"]) / 5;
+    const dLetivoTotal = contarDiasUteis(qx.letivoInicio, qx.letivoFim);
+    const dQuadTotal = contarDiasUteis(qx.qInicio, qx.qFim);
+    const dQuadHoje = contarDiasUteis(qx.qInicio, hojeStr > qx.qFim ? qx.qFim : hojeStr);
+    const dLetivoHoje = contarDiasUteis(qx.letivoInicio, hojeStr > qx.letivoFim ? qx.letivoFim : hojeStr);
+    const dExtraTotal = Math.max(dQuadTotal - dLetivoTotal, 0);
+    const ausQ = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= qx.qFim && a["Data Fim"] >= qx.qInicio);
+    const dB = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+    const mMin = Math.round(hLD * (dLetivoTotal - dB));
+    const mBonus = Math.round(mMin * 0.85);
+    const mE2 = Math.round(mMin * 1.05);
+    const mE3 = Math.round(hSem * (dLetivoTotal - dB) * 1.05);
+    const progQuad = dQuadTotal > 0 ? dQuadHoje / dQuadTotal : 1;
+    const progLetivo = dLetivoTotal > 0 ? dLetivoHoje / dLetivoTotal : 1;
+    const mH = Math.round(mMin * progQuad);
+    const ef = ap.filter(a => a.Tipo === "Efetivado" && a.Data >= qx.qInicio && a.Data <= qx.qFim).length;
+    const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
+    const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
+    const diff = ef - mH;
+    const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
+    const fE2 = Math.max(mE2 - ef, 0);
+    const euros5 = ef > mE2 ? Math.min(ef, mE3) - mE2 : 0;
+    const euros10 = ef > mE3 ? ef - mE3 : 0;
+    const eurosTotal = (euros5 * 5) + (euros10 * 10);
+    const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
+    const passado = hojeStr > qx.qFim;
+    return { ...m, quad: qx, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff, proj, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, dLetivoHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), progLetivo: Math.round(progLetivo * 100), hLD, hSem, dB, euros5, euros10, eurosTotal, passado };
+  };
+
+  const allQuads = m.quads || [];
+  const currentQuadIdx = allQuads.findIndex(qx => q && qx.qInicio === q.qInicio);
+  const viewIdx = quadIdx !== null ? quadIdx : currentQuadIdx;
+  const viewQuad = allQuads[viewIdx] || q;
+  const mq = calcQuad(viewQuad);
+  const canPrev = viewIdx > 0;
+  const canNext = viewIdx < allQuads.length - 1;
+  const isCurrentView = viewIdx === currentQuadIdx;
 
   return (
     <div style={{ maxWidth: 420, margin: "0 auto", minHeight: "100vh", background: C.grayBg, fontFamily: "'DM Sans', sans-serif", position: "relative", paddingBottom: 80 }}>
@@ -590,10 +643,16 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
 
             {!isADM && (
             <div style={{ marginTop: 8 }}>
-              {m.fE2 > 0 ? (
-                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎯</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.tealDark }}>Faltam-te {m.fE2} apoios para o Escalão 2!</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra = 5€</div></div></div></Card>
+              {m.ef < m.mBonus ? (
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.yellowBg + ", " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>Faltam-te {m.mBonus - m.ef} apoios para o dia bónus!</div><div style={{ fontSize: 12, color: C.darkSoft }}>85% da meta = +1 dia de férias</div></div></div></Card>
+              ) : m.ef < m.mMin ? (
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Dia bónus garantido! ✅</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mMin - m.ef} para a meta mínima</div></div></div></Card>
+              ) : m.ef < m.mE2 ? (
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎯</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.tealDark }}>Meta cumprida! Faltam {m.mE2 - m.ef} para os 5€/apoio</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra a partir daí = 5€</div></div></div></Card>
+              ) : m.ef < m.mE3 ? (
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>💰</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>A ganhar 5€/apoio! Já tens +{m.eurosTotal}€</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mE3 - m.ef} para os 10€/apoio</div></div></div></Card>
               ) : (
-                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>⭐</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Acima do Escalão 2!</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra vale 5€</div></div></div></Card>
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, #FFF9E6, " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>💎</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>A ganhar 10€/apoio! Já tens +{m.eurosTotal}€</div><div style={{ fontSize: 12, color: C.darkSoft }}>Máximo atingido — continua!</div></div></div></Card>
               )}
             </div>
             )}
@@ -605,107 +664,150 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
         {/* ═══ TAB META ═══ */}
         {tab === "meta" && !isADM && (
           <div>
-            <h2 style={{ fontSize: 17, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>🎯 A tua meta</h2>
+            {/* Navegação quadrimestres */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <button onClick={() => canPrev && setQuadIdx(viewIdx - 1)} disabled={!canPrev} style={{ background: canPrev ? C.tealLight : C.grayBg, border: "none", borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: canPrev ? "pointer" : "default", color: canPrev ? C.teal : C.grayLight, fontWeight: 800 }}>←</button>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 16, fontWeight: 900, color: C.dark }}>{viewQuad ? viewQuad.label : "—"}</div>
+                <div style={{ fontSize: 12, color: C.darkSoft }}>{viewQuad ? viewQuad.meses : ""}{isCurrentView ? "" : ""}</div>
+                {!isCurrentView && <span style={{ fontSize: 10, fontWeight: 700, color: mq.passado ? C.gray : C.blue, background: mq.passado ? C.grayBg : C.blueBg, padding: "2px 8px", borderRadius: 6 }}>{mq.passado ? "Encerrado" : "Futuro"}</span>}
+                {isCurrentView && <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.tealLight, padding: "2px 8px", borderRadius: 6 }}>Atual</span>}
+              </div>
+              <button onClick={() => canNext && setQuadIdx(viewIdx + 1)} disabled={!canNext} style={{ background: canNext ? C.tealLight : C.grayBg, border: "none", borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: canNext ? "pointer" : "default", color: canNext ? C.teal : C.grayLight, fontWeight: 800 }}>→</button>
+            </div>
+
+            {/* Explicação letivo vs quadrimestre */}
             <Card delay={0} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.teal, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📐 Como se calcula</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.teal, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>💡 Como funciona</div>
+              <div style={{ fontSize: 13, color: C.darkSoft, lineHeight: 1.7 }}>
+                A tua meta é calculada com base nos <strong>{mq.dLetivoTotal} dias do período letivo</strong> ({viewQuad ? viewQuad.periodo : "—"}). É nestes dias que deves, idealmente, cumprir os apoios.
+              </div>
+              <div style={{ fontSize: 13, color: C.darkSoft, lineHeight: 1.7, marginTop: 6 }}>
+                Mas tens <strong>o quadrimestre inteiro</strong> ({mq.dQuadTotal} dias úteis) para os atingir. Os <strong>{mq.dExtraTotal} dias extra</strong> fora do letivo são a tua margem — para recuperar ou ultrapassar a meta.
+              </div>
+            </Card>
+
+            {/* Barra visual dupla: letivo + margem */}
+            <Card delay={0.08} style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 Tempo e meta</div>
+              
+              {/* Barra de tempo */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.darkSoft, marginBottom: 4 }}>
+                  <span>⏱ Tempo</span>
+                  <span style={{ fontWeight: 800, color: C.dark }}>{mq.dQuadHoje} / {mq.dQuadTotal} dias</span>
+                </div>
+                <div style={{ height: 12, background: C.grayLight, borderRadius: 6, overflow: "hidden", position: "relative" }}>
+                  {/* Zona letiva */}
+                  <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: (mq.dQuadTotal > 0 ? (mq.dLetivoTotal / mq.dQuadTotal) * 100 : 0) + "%", background: C.tealLight, borderRadius: 6 }} />
+                  {/* Progresso atual */}
+                  <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: mq.progQuad + "%", background: C.teal, borderRadius: 6, transition: "width 1s ease" }} />
+                  {/* Separador letivo/extra */}
+                  {mq.dExtraTotal > 0 && <div style={{ position: "absolute", left: (mq.dQuadTotal > 0 ? (mq.dLetivoTotal / mq.dQuadTotal) * 100 : 0) + "%", top: 0, height: "100%", width: 2, background: C.white, zIndex: 2 }} />}
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginTop: 3 }}>
+                  <span style={{ color: C.teal, fontWeight: 700 }}>Letivo ({mq.dLetivoTotal}d)</span>
+                  {mq.dExtraTotal > 0 && <span style={{ color: C.gray, fontWeight: 600 }}>Margem extra ({mq.dExtraTotal}d)</span>}
+                </div>
+              </div>
+
+              {/* Barra de apoios */}
+              <div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.darkSoft, marginBottom: 4 }}>
+                  <span>🎯 Apoios</span>
+                  <span style={{ fontWeight: 800, color: C.dark }}>{mq.ef} / {mq.mMin}</span>
+                </div>
+                <div style={{ height: 12, background: C.grayLight, borderRadius: 6, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: Math.min(mq.pM, 100) + "%", background: "linear-gradient(90deg, " + mq.sc + ", " + mq.sc + "cc)", borderRadius: 6, transition: "width 1s ease" }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginTop: 3 }}>
+                  <span style={{ color: mq.sc, fontWeight: 700 }}>{mq.pM}% da meta</span>
+                  <span style={{ color: C.gray }}>+5%: {mq.mE2}</span>
+                </div>
+              </div>
+            </Card>
+
+            {/* Números de progresso */}
+            <Card delay={0.12} style={{ marginTop: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, textAlign: "center" }}>
+                <div style={{ padding: 10, background: C.grayBg, borderRadius: 12 }}>
+                  <div style={{ fontSize: 10, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Feitos</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: C.dark }}>{mq.ef}</div>
+                </div>
+                <div style={{ padding: 10, background: mq.diff >= 0 ? C.greenBg : C.redBg, borderRadius: 12 }}>
+                  <div style={{ fontSize: 10, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>{mq.passado ? "Meta" : "Esperado"}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: mq.diff >= 0 ? C.green : C.red }}>{mq.passado ? mq.mMin : mq.mH}</div>
+                </div>
+                <div style={{ padding: 10, background: C.tealLight, borderRadius: 12 }}>
+                  <div style={{ fontSize: 10, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Meta total</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color: C.teal }}>{mq.mMin}</div>
+                </div>
+              </div>
+              <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: mq.diff >= 0 ? C.greenBg : C.yellowBg, textAlign: "center" }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: mq.diff >= 0 ? C.green : C.red }}>
+                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Meta atingida!" : "❌ Meta não atingida") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
+                </span>
+                {!mq.passado && mq.proj > 0 && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>📈 Projeção: ~{mq.proj} apoios até ao fim</div>}
+              </div>
+            </Card>
+
+            {/* Detalhe do cálculo */}
+            <Card delay={0.16} style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>📐 Detalhe do cálculo</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {[
-                  ["Período letivo", q ? q.periodo : "—"],
-                  ["Datas letivas", (q ? fmtD(q.letivoInicio) : "") + " → " + (q ? fmtD(q.letivoFim) : "")],
-                  ["Dias úteis letivos", m.dLetivoTotal + " dias"],
-                  ["Horas letivas / dia", m.hLD.toFixed(1) + "h"],
+                  ["Período letivo", viewQuad ? viewQuad.periodo : "—"],
+                  ["Datas letivas", (viewQuad ? fmtD(viewQuad.letivoInicio) : "") + " → " + (viewQuad ? fmtD(viewQuad.letivoFim) : "")],
+                  ["Dias úteis letivos", mq.dLetivoTotal + " dias"],
+                  ["Quadrimestre", (viewQuad ? fmtD(viewQuad.qInicio) : "") + " → " + (viewQuad ? fmtD(viewQuad.qFim) : "")],
+                  ["Dias úteis quadrimestre", mq.dQuadTotal + " dias"],
+                  ["Dias extra (margem)", mq.dExtraTotal + " dias"],
+                  ["Horas letivas / dia", mq.hLD.toFixed(1) + "h"],
                 ].map(([label, val], i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: C.white, borderRadius: 10, border: "1px solid " + C.grayLight }}>
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 10px", background: i % 2 === 0 ? C.grayBg : C.white, borderRadius: 8 }}>
                     <span style={{ fontSize: 12, color: C.darkSoft }}>{label}</span>
                     <span style={{ fontSize: 13, fontWeight: 800, color: C.dark }}>{val}</span>
                   </div>
                 ))}
-                {m.dB > 0 && (
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", background: C.purpleBg, borderRadius: 10, border: "1px solid #d5ccff" }}>
-                    <span style={{ fontSize: 12, color: C.purple }}>🏥 Dias baixa (descontados)</span>
-                    <span style={{ fontSize: 13, fontWeight: 800, color: C.purple }}>−{m.dB} dias</span>
+                {mq.dB > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 10px", background: C.purpleBg, borderRadius: 8 }}>
+                    <span style={{ fontSize: 12, color: C.purple }}>🏥 Baixa (descontada)</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: C.purple }}>−{mq.dB} dias</span>
                   </div>
                 )}
               </div>
-              <div style={{ marginTop: 12, padding: "10px 12px", background: C.white, borderRadius: 12, border: "2px solid " + C.teal }}>
-                <div style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 11, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Meta mínima</div>
-                  <div style={{ fontSize: 32, fontWeight: 900, color: C.teal, lineHeight: 1.2 }}>{m.mMin}</div>
-                  <div style={{ fontSize: 11, color: C.darkSoft }}>= {m.dLetivoTotal}{m.dB > 0 ? "−" + m.dB : ""} dias × {m.hLD.toFixed(1)}h/dia</div>
-                </div>
+              <div style={{ marginTop: 10, padding: "8px 12px", background: C.white, borderRadius: 10, border: "2px solid " + C.teal, textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: C.gray, fontWeight: 700 }}>META = ({mq.dLetivoTotal}{mq.dB > 0 ? " − " + mq.dB : ""}) × {mq.hLD.toFixed(1)}h</div>
+                <div style={{ fontSize: 28, fontWeight: 900, color: C.teal }}>{mq.mMin}</div>
               </div>
             </Card>
 
-            <Card delay={0.1} style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>⏱ Tempo para cumprir</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <div style={{ flex: 1, textAlign: "center", padding: 10, background: C.grayBg, borderRadius: 12 }}>
-                  <div style={{ fontSize: 10, color: C.gray, textTransform: "uppercase", fontWeight: 700 }}>Quadrimestre</div>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: C.dark }}>{q ? q.meses : "—"}</div>
-                  <div style={{ fontSize: 11, color: C.darkSoft }}>{q ? fmtD(q.qInicio) : ""} → {q ? fmtD(q.qFim) : ""}</div>
-                </div>
-                <div style={{ flex: 1, textAlign: "center", padding: 10, background: C.tealLight, borderRadius: 12 }}>
-                  <div style={{ fontSize: 10, color: C.teal, textTransform: "uppercase", fontWeight: 700 }}>Dias restantes</div>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: C.teal }}>{Math.max(m.dQuadTotal - m.dQuadHoje, 0)}</div>
-                  <div style={{ fontSize: 11, color: C.tealDark }}>de {m.dQuadTotal} úteis</div>
-                </div>
-              </div>
-              <div style={{ height: 8, background: C.grayLight, borderRadius: 4, marginTop: 10, overflow: "hidden" }}>
-                <div style={{ height: "100%", width: m.progQuad + "%", background: C.teal, borderRadius: 4 }} />
-              </div>
-              <div style={{ fontSize: 11, color: C.darkSoft, textAlign: "center", marginTop: 4 }}>{m.progQuad}% do quadrimestre passado</div>
-            </Card>
-
-            <Card delay={0.15} style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 O teu progresso</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, textAlign: "center" }}>
-                <div style={{ padding: 10, background: C.grayBg, borderRadius: 12 }}>
-                  <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Feitos</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: C.dark }}>{m.ef}</div>
-                </div>
-                <div style={{ padding: 10, background: m.diff >= 0 ? C.greenBg : C.redBg, borderRadius: 12 }}>
-                  <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Esperado hoje</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: m.diff >= 0 ? C.green : C.red }}>{m.mH}</div>
-                </div>
-                <div style={{ padding: 10, background: C.tealLight, borderRadius: 12 }}>
-                  <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Meta total</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, color: C.teal }}>{m.mMin}</div>
-                </div>
-              </div>
-              <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: m.diff >= 0 ? C.greenBg : C.yellowBg, textAlign: "center" }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: m.diff >= 0 ? C.green : C.red }}>
-                  {m.diff >= 0 ? "🟢 +" + m.diff + " à frente do ritmo" : "🔴 " + Math.abs(m.diff) + " abaixo do ritmo"}
-                </span>
-                {m.proj > 0 && <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>📈 Projeção: ~{m.proj} apoios até ao fim</div>}
-              </div>
-            </Card>
-
+            {/* Objetivos */}
             <Card delay={0.2} style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>⭐ Escalões</div>
-              {[{ l: "Meta mínima", v: m.mMin, icon: "🎯", active: m.ef >= m.mMin }, { l: "Escalão +5% (5€/apoio)", v: m.mE2, icon: "💰", active: m.ef >= m.mE2 }].map((e, i) => (
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>⭐ Objetivos</div>
+              {[
+                { l: "Dia bónus de férias", desc: "85% da meta", v: mq.mBonus, icon: "🎁", active: mq.ef >= mq.mBonus, color: C.green },
+                { l: "Meta mínima", desc: "100%", v: mq.mMin, icon: "🎯", active: mq.ef >= mq.mMin, color: C.teal },
+                { l: "5€ por apoio extra", desc: "Meta + 5%", v: mq.mE2, icon: "💰", active: mq.ef >= mq.mE2, color: C.green },
+                { l: "10€ por apoio extra", desc: "H. semanais + 5%", v: mq.mE3, icon: "💎", active: mq.ef >= mq.mE3, color: "#E17055" },
+              ].map((e, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, marginBottom: 4, background: e.active ? C.greenBg : C.grayBg, border: "1px solid " + (e.active ? "#b2f5ea" : C.grayLight) }}>
                   <span style={{ fontSize: 18 }}>{e.icon}</span>
-                  <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700, color: e.active ? C.green : C.dark }}>{e.l}</div><div style={{ fontSize: 11, color: C.darkSoft }}>{e.v} apoios</div></div>
-                  <span style={{ fontSize: e.active ? 16 : 11, fontWeight: 700, color: e.active ? C.green : C.red }}>{e.active ? "✅" : Math.max(e.v - m.ef, 0) + " faltam"}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: e.active ? C.green : C.dark }}>{e.l}</div>
+                    <div style={{ fontSize: 11, color: C.darkSoft }}>{e.v} apoios <span style={{ color: C.gray }}>({e.desc})</span></div>
+                  </div>
+                  <span style={{ fontSize: e.active ? 16 : 12, fontWeight: 700, color: e.active ? C.green : C.red }}>{e.active ? "✅" : Math.max(e.v - mq.ef, 0) + " faltam"}</span>
                 </div>
               ))}
+              {mq.eurosTotal > 0 && (
+                <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 10, background: "linear-gradient(135deg, #FFF9E6, " + C.white + ")", border: "1px solid #FDEBD0", textAlign: "center" }}>
+                  <div style={{ fontSize: 11, color: C.gray, fontWeight: 700 }}>💶 Valor acumulado este quadrimestre</div>
+                  <div style={{ fontSize: 28, fontWeight: 900, color: "#E17055" }}>+{mq.eurosTotal}€</div>
+                  <div style={{ fontSize: 11, color: C.darkSoft }}>{mq.euros5 > 0 ? mq.euros5 + " apoios × 5€" : ""}{mq.euros5 > 0 && mq.euros10 > 0 ? " + " : ""}{mq.euros10 > 0 ? mq.euros10 + " apoios × 10€" : ""}</div>
+                </div>
+              )}
             </Card>
-
-            <h3 style={{ fontSize: 14, fontWeight: 800, color: C.dark, margin: "14px 0 8px" }}>📅 Quadrimestres do ano</h3>
-            {(m.quads || []).map((qx, i) => {
-              const isCurrent = q && qx.qInicio === q.qInicio;
-              return (
-                <Card key={i} delay={0.25 + i * 0.04} style={{ padding: "10px 14px", marginBottom: 6, border: isCurrent ? "2px solid " + C.teal : "1px solid " + C.grayLight, background: isCurrent ? C.tealLight : C.white }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: isCurrent ? C.teal : C.dark }}>{qx.label} <span style={{ fontWeight: 500, color: C.gray }}>({qx.meses})</span></div>
-                      <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 1 }}>{qx.periodo}: {fmtD(qx.letivoInicio)} → {fmtD(qx.letivoFim)}</div>
-                    </div>
-                    {isCurrent && <span style={{ background: C.teal, color: C.white, padding: "2px 8px", borderRadius: 6, fontSize: 10, fontWeight: 800 }}>ATUAL</span>}
-                  </div>
-                </Card>
-              );
-            })}
           </div>
         )}
 
