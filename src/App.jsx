@@ -170,7 +170,8 @@ function calc(t, apoios, aus, periodos, fecho, horarios) {
   const bU = aus.filter(a => a.Motivo === "Férias (Bónus)" && (a.Estado === "Aprovado" || a.Estado === "Pendente")).reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const oR = Math.max(Number(t["Dias Férias"]) - fU, 0);
   const dBn = Number(t["Dias Bónus Ganhos"] || 0), bR = Math.max(dBn - bU, 0);
-  const limiteCAIDI = diasFeriasCAIDI;
+  const diasBonusCAIDI = diasTrab < 5 ? Math.round(dBn * diasTrab / 5) : dBn;
+  const limiteCAIDI = diasFeriasCAIDI + diasBonusCAIDI;
   const usadosCAIDI = fechoCAIDI + feriasCAIDI;
   const restamCAIDI = Math.max(limiteCAIDI - usadosCAIDI, 0);
 
@@ -180,11 +181,11 @@ function calc(t, apoios, aus, periodos, fecho, horarios) {
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado };
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -494,14 +495,14 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
             {esgotouCAIDI && (
               <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, marginBottom: 14, border: "1px solid #f5c6c0" }}>
                 <div style={{ fontSize: 14, fontWeight: 800, color: C.red }}>🔴 Dias de trabalho esgotados</div>
-                <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>As tuas {Number(terap["Horas Semanais"])}h semanais estão concentradas em {metrics.diasTrab} dias, por isso tens {metrics.diasFeriasCAIDI} dias de férias no CAIDI. Já os usaste todos. Se precisares de faltar, contacta a gestão.</div>
+                <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>As tuas {Number(terap["Horas Semanais"])}h semanais estão concentradas em {metrics.diasTrab} dias, por isso tens {metrics.diasFeriasCAIDI} dias de férias{metrics.diasBonusCAIDI > 0 ? " + " + metrics.diasBonusCAIDI + " bónus" : ""} no CAIDI. Já os usaste todos. Se precisares de faltar, contacta a gestão.</div>
               </div>
             )}
             {ultrapassaCAIDI && !esgotouCAIDI && (
               <div style={{ background: C.redBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.red, fontWeight: 600, marginBottom: 16 }}>⚠️ Este pedido usa <strong>{diasTrabPedido} dias de trabalho</strong> mas só tens <strong>{metrics.restamCAIDI}</strong>. Ajusta as datas.</div>
             )}
             {isFerias && metrics.diasTrab < 5 && !esgotouCAIDI && !ultrapassaCAIDI && metrics.restamCAIDI > 0 && metrics.restamCAIDI <= 3 && (
-              <div style={{ background: C.yellowBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: "#E17055", fontWeight: 600, marginBottom: 16 }}>⚠️ Restam-te <strong>{metrics.restamCAIDI} dias de trabalho</strong> disponíveis no CAIDI (de {metrics.diasFeriasCAIDI})</div>
+              <div style={{ background: C.yellowBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: "#E17055", fontWeight: 600, marginBottom: 16 }}>⚠️ Restam-te <strong>{metrics.restamCAIDI} dias de trabalho</strong> disponíveis no CAIDI (de {metrics.limiteCAIDI})</div>
             )}
             {type === "baixa" && <div style={{ background: C.purpleBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.purple, fontWeight: 600, marginBottom: 16 }}>🏥 A baixa <strong>não desconta</strong> férias. A meta ajusta-se.</div>}
             {type === "formacao" && <div style={{ background: C.orangeBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.orange, fontWeight: 600, marginBottom: 16 }}>🎓 Formações <strong>não descontam</strong> férias nem meta.</div>}
@@ -837,13 +838,13 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                   Se as tuas horas estivessem distribuídas por 5 dias, os 22 dias de férias cobriam todos os dias da semana. Mas como trabalhas {m.diasTrab} dias, marcar férias num dia em que não estás no CAIDI não faz sentido — já é um dia livre.
                 </div>
                 <div style={{ fontSize: 14, color: C.darkSoft, lineHeight: 1.7, marginTop: 8 }}>
-                  Por isso, dos 22 dias, <strong>{m.diasFeriasCAIDI} correspondem a dias em que efetivamente trabalhas</strong> no CAIDI. São esses os dias que podes usar.
+                  Por isso, dos 22 dias, <strong>{m.diasFeriasCAIDI} correspondem a dias em que efetivamente trabalhas</strong> no CAIDI.{m.diasBonusCAIDI > 0 ? <span> Com os <strong>{m.diasBonusCAIDI} dias bónus</strong> ganhos, tens <strong>{m.limiteCAIDI} dias</strong> no total.</span> : " São esses os dias que podes usar."}
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, padding: "10px 4px", borderTop: "1px solid #d4e6f1" }}>
                   <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.gray }}>{m.fechoCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Fecho</div></div>
                   <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.blue }}>{m.feriasCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Marcados</div></div>
                   <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: m.restamCAIDI <= 2 ? C.red : C.green }}>{m.restamCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Disponíveis</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.tealDark }}>{m.diasFeriasCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Total</div></div>
+                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.tealDark }}>{m.limiteCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Total{m.diasBonusCAIDI > 0 ? " (+" + m.diasBonusCAIDI + " bónus)" : ""}</div></div>
                 </div>
                 {m.restamCAIDI <= 2 && m.restamCAIDI > 0 && <div style={{ fontSize: 11, color: C.red, fontWeight: 700, marginTop: 6 }}>⚠️ Tens poucos dias de trabalho disponíveis.</div>}
                 {m.restamCAIDI <= 0 && <div style={{ fontSize: 11, color: C.red, fontWeight: 700, marginTop: 6 }}>🔴 Já usaste todos os dias de trabalho. Se precisares de faltar, contacta a gestão.</div>}
@@ -1102,7 +1103,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     {!tIsADM && <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>}
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
-                    {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/sem → " + m2.diasFeriasCAIDI + " dias CAIDI"}>📋 <span style={{ fontWeight: 800, color: m2.restamCAIDI <= 2 ? C.red : C.blue }}>{m2.restamCAIDI}</span><span style={{ color: C.gray }}>/{m2.diasFeriasCAIDI}</span></div>}
+                    {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/sem → " + m2.limiteCAIDI + " dias CAIDI"}>📋 <span style={{ fontWeight: 800, color: m2.restamCAIDI <= 2 ? C.red : C.blue }}>{m2.restamCAIDI}</span><span style={{ color: C.gray }}>/{m2.limiteCAIDI}</span></div>}
                     <div>🌴 <span style={{ fontWeight: 800, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</span></div>
                     {m2.dB > 0 && <div>🏥 <span style={{ fontWeight: 800, color: C.purple }}>{m2.dB}d</span></div>}
                     {m2.dFI > 0 && <div>⚠️ <span style={{ fontWeight: 800, color: C.red }}>{m2.dFI}</span></div>}
@@ -1133,7 +1134,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                   <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>{fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {fmtDias(p["Dias Úteis"], p["Período"])}</div>
                   {m2t && m2t.diasTrab < 5 && p.Motivo.includes("Férias") && (
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.blueBg, color: C.blue, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, marginTop: 4 }}>
-                      📋 {m2t.diasTrab}d/sem · CAIDI: {m2t.restamCAIDI}/{m2t.diasFeriasCAIDI} disponíveis
+                      📋 {m2t.diasTrab}d/sem · CAIDI: {m2t.restamCAIDI}/{m2t.limiteCAIDI} disponíveis
                     </div>
                   )}
                   {p.Observações && <div style={{ fontSize: 12, color: C.darkSoft, fontStyle: "italic", marginTop: 3 }}>"{p.Observações}"</div>}
