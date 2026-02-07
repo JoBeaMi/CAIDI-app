@@ -935,6 +935,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   const [semanaOffset, setSemanaOffset] = useState(0);
   const [mesOffset, setMesOffset] = useState(0);
   const [searchTer, setSearchTer] = useState("");
+  const [adminQuadIdx, setAdminQuadIdx] = useState(null);
 
   // Form registar falta
   const [faltaTer, setFaltaTer] = useState("");
@@ -1180,13 +1181,63 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
         )}
 
         {/* ═══ TAB EQUIPA ═══ */}
-        {adminTab === "equipa" && (
+        {adminTab === "equipa" && (() => {
+          const allQuads = buildQuadrimestres(data.periodos);
+          const hojeStr = new Date().toISOString().slice(0, 10);
+          const curIdx = allQuads.findIndex(q => hojeStr >= q.qInicio && hojeStr <= q.qFim);
+          const currentIdx = curIdx >= 0 ? curIdx : allQuads.length - 1;
+          const vIdx = adminQuadIdx !== null ? adminQuadIdx : currentIdx;
+          const vQuad = allQuads[vIdx] || null;
+          const isCurrent = vIdx === currentIdx;
+          const canP = vIdx > 0;
+          const canN = vIdx < allQuads.length - 1;
+          const isPassado = vQuad && hojeStr > vQuad.qFim;
+
+          // Calc metrics for a specific quad
+          const calcQ = (t, qx) => {
+            const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
+            const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
+            if (!qx) return calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios);
+            const hLD = Number(t["Horas Letivas"]) / 5;
+            const hSem = Number(t["Horas Semanais"]) / 5;
+            const dLT = contarDiasUteis(qx.letivoInicio, qx.letivoFim);
+            const dQT = contarDiasUteis(qx.qInicio, qx.qFim);
+            const dQH = contarDiasUteis(qx.qInicio, hojeStr > qx.qFim ? qx.qFim : hojeStr);
+            const ausQ = aus2.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= qx.qFim && a["Data Fim"] >= qx.qInicio);
+            const dB = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+            const mMin = Math.round(hLD * (dLT - dB));
+            const mBonus = Math.round(mMin * 0.85);
+            const mE2 = Math.round(mMin * 1.05);
+            const mE3 = Math.round(hSem * (dLT - dB) * 1.05);
+            const progQ = dQT > 0 ? dQH / dQT : 1;
+            const mH = Math.round(mMin * progQ);
+            const ef = ap2.filter(a => a.Tipo === "Efetivado" && a.Data >= qx.qInicio && a.Data <= qx.qFim).length;
+            const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
+            const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
+            const euros5 = ef > mE2 ? Math.min(ef, mE3) - mE2 : 0;
+            const euros10 = ef > mE3 ? ef - mE3 : 0;
+            const eurosTotal = (euros5 * 5) + (euros10 * 10);
+            const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
+            const mBase = calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios);
+            return { ...mBase, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, sc, eurosTotal, dB, quad: qx, passado: hojeStr > qx.qFim };
+          };
+
+          return (
           <div>
-            <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Equipa</h2>
+            {/* Navegação quadrimestres */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <button onClick={() => canP && setAdminQuadIdx(vIdx - 1)} disabled={!canP} style={{ background: canP ? C.tealLight : C.grayBg, border: "none", borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: canP ? "pointer" : "default", color: canP ? C.teal : C.grayLight, fontWeight: 800 }}>←</button>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 16, fontWeight: 900, color: C.dark }}>{vQuad ? vQuad.label : "—"}</div>
+                <div style={{ fontSize: 12, color: C.darkSoft }}>{vQuad ? vQuad.meses : ""}</div>
+                {isCurrent && <span style={{ fontSize: 10, fontWeight: 700, color: C.teal, background: C.tealLight, padding: "2px 8px", borderRadius: 6 }}>Atual</span>}
+                {!isCurrent && <span style={{ fontSize: 10, fontWeight: 700, color: isPassado ? C.gray : C.blue, background: isPassado ? C.grayBg : C.blueBg, padding: "2px 8px", borderRadius: 6 }}>{isPassado ? "Encerrado" : "Futuro"}</span>}
+              </div>
+              <button onClick={() => canN && setAdminQuadIdx(vIdx + 1)} disabled={!canN} style={{ background: canN ? C.tealLight : C.grayBg, border: "none", borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: canN ? "pointer" : "default", color: canN ? C.teal : C.grayLight, fontWeight: 800 }}>→</button>
+            </div>
+
             {data.terapeutas.map((t, idx) => {
-              const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-              const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
-              const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios);
+              const m2 = calcQ(t, vQuad);
               const tIsADM = t["Área"] === "ADM";
               return (
                 <Card key={t.ID} delay={idx * 0.05} style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
@@ -1196,22 +1247,28 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     <div style={{ width: 48, height: 48, borderRadius: 14, background: C.blueBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>🏢</div>
                   )}
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t.Nome}</span>{!tIsADM && <span>{m2.pH >= 95 ? "🟢" : m2.pH >= 80 ? "🟡" : "🔴"}</span>}{tIsADM && <span style={{ fontSize: 10, fontWeight: 700, color: C.blue, background: C.blueBg, padding: "2px 6px", borderRadius: 6 }}>ADM</span>}</div>
-                    <div style={{ fontSize: 11, color: C.darkSoft }}>{!tIsADM ? m2.ef + "/" + m2.mMin + " · " : ""}{t["Área"]}{m2.quad && !tIsADM ? " · " + m2.quad.meses : ""}</div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t.Nome}</span>
+                      {!tIsADM && <span>{m2.passado ? (m2.ef >= m2.mMin ? "✅" : "❌") : (m2.pH >= 95 ? "🟢" : m2.pH >= 80 ? "🟡" : "🔴")}</span>}
+                      {tIsADM && <span style={{ fontSize: 10, fontWeight: 700, color: C.blue, background: C.blueBg, padding: "2px 6px", borderRadius: 6 }}>ADM</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: C.darkSoft }}>{!tIsADM ? m2.ef + "/" + m2.mMin + " · " : ""}{t["Área"]}</div>
                     {!tIsADM && <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>}
+                    {!tIsADM && m2.eurosTotal > 0 && <div style={{ fontSize: 10, color: "#E17055", fontWeight: 700, marginTop: 3 }}>💶 +{m2.eurosTotal}€</div>}
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
                     {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/sem → " + m2.limiteCAIDI + " dias CAIDI"}>📋 <span style={{ fontWeight: 800, color: m2.restamCAIDI <= 2 ? C.red : C.blue }}>{m2.restamCAIDI}</span><span style={{ color: C.gray }}>/{m2.limiteCAIDI}</span></div>}
                     <div>🌴 <span style={{ fontWeight: 800, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</span></div>
                     {m2.dB > 0 && <div>🏥 <span style={{ fontWeight: 800, color: C.purple }}>{m2.dB}d</span></div>}
                     {m2.dFI > 0 && <div>⚠️ <span style={{ fontWeight: 800, color: C.red }}>{m2.dFI}</span></div>}
-                    {m2.dFO > 0 && <div>🎓 <span style={{ fontWeight: 800, color: C.orange }}>{m2.dFO}d</span></div>}
+                    {!tIsADM && m2.ef >= m2.mBonus && m2.ef < m2.mMin && <div>🎁 <span style={{ fontWeight: 800, color: C.green }}>bónus</span></div>}
                   </div>
                 </Card>
               );
             })}
           </div>
-        )}
+          );
+        })()}
 
         {/* ═══ TAB PENDENTES ═══ */}
         {adminTab === "pendentes" && (
