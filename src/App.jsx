@@ -517,7 +517,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const pend = aus.filter(p => p.Estado === "Pendente").length;
   const handleSubmit = (n) => { onAddAusencia(n); onRefresh(); };
-  const tabs = [{ id: "inicio", icon: "🏠", l: "Início" }, { id: "meta", icon: "🎯", l: "Meta" }, { id: "ferias", icon: "🌴", l: "Férias" }, { id: "ausencias", icon: "📑", l: "Ausências" }, { id: "pedidos", icon: "📋", l: "Pedidos" }];
+  const isADM = terap["Área"] === "ADM";
+  const tabs = [{ id: "inicio", icon: "🏠", l: "Início" }, ...(!isADM ? [{ id: "meta", icon: "🎯", l: "Meta" }] : []), { id: "ferias", icon: "🌴", l: "Férias" }, { id: "ausencias", icon: "📑", l: "Ausências" }, { id: "pedidos", icon: "📋", l: "Pedidos" }];
   const q = m.quad;
 
   return (
@@ -539,6 +540,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
         {/* ═══ TAB INÍCIO ═══ */}
         {tab === "inicio" && (
           <div>
+            {!isADM && (
             <Card delay={0}>
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <Ring value={m.ef} max={m.mMin} size={96} stroke={9} color={m.sc}>
@@ -555,8 +557,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 </div>
               </div>
             </Card>
+            )}
 
-            {/* Barra tempo quadrimestre */}
+            {!isADM && (
             <Card delay={0.06} style={{ padding: "12px 14px", marginTop: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                 <span style={{ fontSize: 11, fontWeight: 800, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 0.5 }}>⏱ Tempo do quadrimestre</span>
@@ -571,9 +574,10 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 <span>{q ? fmtD(q.qFim) : ""}</span>
               </div>
             </Card>
+            )}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
-              {[{ i: "🌴", v: m.oR, l: "férias", c: m.oR <= 3 ? C.red : C.teal }, { i: "🏥", v: m.dB, l: "baixa", c: m.dB > 0 ? C.purple : C.teal }, { i: "🎓", v: m.dFO, l: "form.", c: C.orange }, { i: "🎁", v: m.dBn, l: "bónus", c: C.green }].map((x, idx) => (
+            <div style={{ display: "grid", gridTemplateColumns: isADM ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
+              {[{ i: "🌴", v: m.oR, l: "férias", c: m.oR <= 3 ? C.red : C.teal }, { i: "🏥", v: m.dB, l: "baixa", c: m.dB > 0 ? C.purple : C.teal }, ...(!isADM ? [{ i: "🎓", v: m.dFO, l: "form.", c: C.orange }, { i: "🎁", v: m.dBn, l: "bónus", c: C.green }] : [{ i: "📋", v: m.dFJ + m.dFI, l: "faltas", c: m.dFI > 0 ? C.red : C.blue }])].map((x, idx) => (
                 <Card key={idx} delay={0.1 + idx * 0.03} style={{ padding: 10, textAlign: "center" }}>
                   <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>{x.i}</div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: x.c, lineHeight: 1.3 }}>{x.v}</div>
@@ -584,6 +588,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
 
             {m.dFI > 0 && <Card delay={0.2} style={{ marginTop: 8, background: C.redBg, border: "1px solid #f5c6c0", padding: 12 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span>⚠️</span><span style={{ fontSize: 13, fontWeight: 700, color: C.red }}>{m.dFI} falta{m.dFI > 1 ? "s" : ""} injustificada{m.dFI > 1 ? "s" : ""}</span></div></Card>}
 
+            {!isADM && (
             <div style={{ marginTop: 8 }}>
               {m.fE2 > 0 ? (
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎯</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.tealDark }}>Faltam-te {m.fE2} apoios para o Escalão 2!</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra = 5€</div></div></div></Card>
@@ -591,13 +596,14 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>⭐</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Acima do Escalão 2!</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra vale 5€</div></div></div></Card>
               )}
             </div>
+            )}
 
             {pend > 0 && <Card delay={0.28} style={{ marginTop: 8, background: C.yellowBg, border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span>⏳</span><span style={{ fontSize: 13, fontWeight: 700, color: C.red, flex: 1 }}>{pend} pendente{pend > 1 ? "s" : ""}</span><button onClick={() => setTab("pedidos")} style={{ background: C.red + "15", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, color: C.red, cursor: "pointer" }}>Ver →</button></div></Card>}
           </div>
         )}
 
         {/* ═══ TAB META ═══ */}
-        {tab === "meta" && (
+        {tab === "meta" && !isADM && (
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>🎯 A tua meta</h2>
             <Card delay={0} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}>
@@ -980,13 +986,18 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
               const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
               const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios);
+              const tIsADM = t["Área"] === "ADM";
               return (
                 <Card key={t.ID} delay={idx * 0.05} style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 12 }}>
-                  <Ring value={m2.ef} max={m2.mMin} size={48} stroke={5} color={m2.sc}><span style={{ fontSize: 12, fontWeight: 900, color: m2.sc }}>{m2.pM}%</span></Ring>
+                  {!tIsADM ? (
+                    <Ring value={m2.ef} max={m2.mMin} size={48} stroke={5} color={m2.sc}><span style={{ fontSize: 12, fontWeight: 900, color: m2.sc }}>{m2.pM}%</span></Ring>
+                  ) : (
+                    <div style={{ width: 48, height: 48, borderRadius: 14, background: C.blueBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>🏢</div>
+                  )}
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t.Nome}</span><span>{m2.pH >= 95 ? "🟢" : m2.pH >= 80 ? "🟡" : "🔴"}</span></div>
-                    <div style={{ fontSize: 11, color: C.darkSoft }}>{m2.ef}/{m2.mMin} · {t["Área"]} · {m2.quad ? m2.quad.meses : ""}</div>
-                    <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t.Nome}</span>{!tIsADM && <span>{m2.pH >= 95 ? "🟢" : m2.pH >= 80 ? "🟡" : "🔴"}</span>}{tIsADM && <span style={{ fontSize: 10, fontWeight: 700, color: C.blue, background: C.blueBg, padding: "2px 6px", borderRadius: 6 }}>ADM</span>}</div>
+                    <div style={{ fontSize: 11, color: C.darkSoft }}>{!tIsADM ? m2.ef + "/" + m2.mMin + " · " : ""}{t["Área"]}{m2.quad && !tIsADM ? " · " + m2.quad.meses : ""}</div>
+                    {!tIsADM && <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>}
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
                     {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/sem → " + m2.diasFeriasCAIDI + " dias CAIDI"}>📋 <span style={{ fontWeight: 800, color: m2.restamCAIDI <= 2 ? C.red : C.blue }}>{m2.restamCAIDI}</span><span style={{ color: C.gray }}>/{m2.diasFeriasCAIDI}</span></div>}
