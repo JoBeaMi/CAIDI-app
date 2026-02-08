@@ -132,6 +132,7 @@ function calc(t, apoios, aus, periodos, fecho, horarios) {
   const hor = getHorario(horarios, t.ID);
 
   const dLetivoTotal = contarDiasUteis(q.letivoInicio, q.letivoFim);
+  const dLetivoHoje = contarDiasUteis(q.letivoInicio, hojeStr > q.letivoFim ? q.letivoFim : hojeStr);
   const dQuadTotal = contarDiasUteis(q.qInicio, q.qFim);
   const dQuadHoje = contarDiasUteis(q.qInicio, hojeStr > q.qFim ? q.qFim : hojeStr);
   const hLD = Number(t["Horas Letivas"]) / 5;
@@ -181,11 +182,11 @@ function calc(t, apoios, aus, periodos, fecho, horarios) {
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado };
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -594,6 +595,91 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
         {/* ═══ TAB INÍCIO ═══ */}
         {tab === "inicio" && (
           <div>
+            {/* Mensagem da equipa */}
+            {!isADM && (() => {
+              // Calcular dados da equipa para o quadrimestre atual
+              const equipaTeraps = data.terapeutas.filter(t => t["Área"] !== "ADM");
+              const equipaData = equipaTeraps.map(t => {
+                const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
+                const tAp = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
+                const tM = calc(t, tAp, tAus, data.periodos, data.fecho, data.horarios);
+                // Verificar se está de baixa agora
+                const hojeStr = new Date().toISOString().slice(0, 10);
+                const emBaixa = tAus.some(a => a.Motivo === "Baixa Médica" && a.Estado === "Aprovado" && hojeStr >= a["Data Início"] && hojeStr <= a["Data Fim"]);
+                return { ...t, m: tM, emBaixa };
+              });
+              
+              const ativos = equipaData.filter(t => !t.emBaixa && t.m.mMin > 0);
+              const totalEf = ativos.reduce((s, t) => s + t.m.ef, 0);
+              const totalMeta = ativos.reduce((s, t) => s + t.m.mMin, 0);
+              const equipaPct = totalMeta > 0 ? Math.round((totalEf / totalMeta) * 100) : 0;
+              
+              // Top contributors (acima da meta individual)
+              const tops = ativos
+                .filter(t => t.m.pM >= 100)
+                .sort((a, b) => b.m.pM - a.m.pM);
+              
+              // Quantos estão abaixo (sem dar nomes)
+              const abaixo = ativos.filter(t => t.m.pM < 80).length;
+              const emBaixaCount = equipaData.filter(t => t.emBaixa).length;
+              
+              const equipaBem = equipaPct >= 95;
+              const nomesProprio = terap.Nome.split(" ")[0];
+              const euSouTop = tops.some(t => t.ID === terap.ID);
+              
+              return (
+                <Card delay={0} style={{ marginBottom: 8, background: "linear-gradient(135deg, " + (equipaBem ? "#E8F8F5" : "#FFF9E6") + ", " + C.white + ")", border: "1px solid " + (equipaBem ? "#b2f5ea" : "#FDEBD0") }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>🤝 Equipa CAIDI · {q ? q.label : ""}</div>
+                  
+                  {/* Barra da equipa */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ height: 8, background: C.grayLight, borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: Math.min(equipaPct, 100) + "%", background: equipaBem ? C.green : C.yellow, borderRadius: 4, transition: "width 1s ease" }} />
+                      </div>
+                    </div>
+                    <span style={{ fontSize: 16, fontWeight: 900, color: equipaBem ? C.green : "#d4a017" }}>{equipaPct}%</span>
+                  </div>
+                  
+                  {/* Mensagem principal */}
+                  <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7 }}>
+                    {equipaBem ? (
+                      <>Estamos no bom caminho! 💪 A equipa como um todo está a <strong>{equipaPct}% da meta</strong>.</>
+                    ) : (
+                      <>Estamos a <strong>{equipaPct}% da meta</strong> enquanto equipa. Ainda não chegamos lá, mas estamos todos no mesmo caminho.</>
+                    )}
+                  </div>
+                  
+                  {/* Reconhecimento */}
+                  {tops.length > 0 && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: C.darkSoft, lineHeight: 1.7 }}>
+                      {tops.length === 1 ? (
+                        <>Neste caminho, <strong style={{ color: C.tealDark }}>{tops[0].Nome.split(" ")[0]}</strong> tem dado um contributo especial ao compensar quem ainda não conseguiu chegar lá. {euSouTop ? "És tu — obrigado pelo teu esforço! 💚" : ""}</>
+                      ) : tops.length <= 3 ? (
+                        <>{tops.map((t, i) => (<span key={t.ID}><strong style={{ color: C.tealDark }}>{t.Nome.split(" ")[0]}</strong>{i < tops.length - 2 ? ", " : i < tops.length - 1 ? " e " : ""}</span>))} têm dado um contributo especial, compensando quem ainda não conseguiu chegar lá. {euSouTop ? "Tu és um deles — obrigado! 💚" : "O esforço deles faz diferença para todos."}</>
+                      ) : (
+                        <>{tops.slice(0, 3).map((t, i) => (<span key={t.ID}><strong style={{ color: C.tealDark }}>{t.Nome.split(" ")[0]}</strong>{i < 2 ? (i < 1 ? ", " : " e ") : ""}</span>))} (e mais {tops.length - 3}) têm levado a equipa às costas, compensando quem ainda está atrás. {euSouTop ? "Tu és um deles — obrigado! 💚" : "O esforço deles beneficia toda a equipa."}</>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Contexto de baixas */}
+                  {emBaixaCount > 0 && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: C.purple, fontWeight: 600 }}>
+                      🏥 {emBaixaCount} colega{emBaixaCount > 1 ? "s" : ""} de baixa — a equipa cobre.
+                    </div>
+                  )}
+                  
+                  {/* Call to action suave */}
+                  {!equipaBem && !euSouTop && (
+                    <div style={{ marginTop: 8, fontSize: 12, color: C.tealDark, fontWeight: 700 }}>
+                      💡 Cada apoio que fazes contribui para chegarmos lá juntos.
+                    </div>
+                  )}
+                </Card>
+              );
+            })()}
+
             {!isADM && (
             <Card delay={0}>
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -790,18 +876,18 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 const hLetivas = Number(terap["Horas Letivas"]);
                 const hSemanais = Number(terap["Horas Semanais"]);
                 const hIndiretas = hSemanais - hLetivas;
-                const semanasDecorridas = Math.max(Math.floor(mq.dQuadHoje / 5), 1);
+                // Usar dias LETIVOS decorridos (descontando baixa) — não dias do quadrimestre
+                const diasLetivosTrab = Math.max((mq.dLetivoHoje || mq.dQuadHoje) - mq.dB, 1);
                 const semanasLetivas = Math.max(Math.floor(mq.dLetivoTotal / 5), 1);
+                const semanasDecorridas = Math.max(Math.round(diasLetivosTrab / 5 * 10) / 10, 0.2);
                 const apoiosSemana = Math.round((mq.ef / semanasDecorridas) * 10) / 10;
-                const metaSemanal = Math.round((mq.mMin / semanasLetivas) * 10) / 10;
-                // Apoios por hora = total apoios / total horas letivas trabalhadas
-                const horasLetivasTrabalhadas = semanasDecorridas * hLetivas;
+                const metaSemanal = Math.round(hLetivas * 10) / 10; // 1 apoio/hora × horas letivas
+                // Apoios por hora = total apoios / horas letivas realmente trabalhadas
+                const horasLetivasTrabalhadas = Math.round(diasLetivosTrab * (hLetivas / 5));
                 const apoiosPorHora = horasLetivasTrabalhadas > 0 ? Math.round((mq.ef / horasLetivasTrabalhadas) * 100) / 100 : 0;
-                const abaixo = apoiosSemana < metaSemanal;
                 const menosDeUmPorHora = apoiosPorHora < 1;
-                // Quanto tempo indireto usam "a mais"
-                const horasDiretasReais = mq.ef; // ~1 apoio = ~1 hora (mínimo esperado)
-                const horasDiretasPorSemana = Math.round((horasDiretasReais / semanasDecorridas) * 10) / 10;
+                // Quanto tempo direto fica sem apoios registados
+                const horasDiretasPorSemana = apoiosSemana; // ~1 apoio = ~1 hora
                 const tempoLivre = Math.max(hLetivas - horasDiretasPorSemana, 0);
 
                 return (
@@ -902,11 +988,54 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         </div>
                       </div>
                     ) : (
-                      <div style={{ marginTop: 10, padding: "12px 14px", background: C.greenBg, borderRadius: 12, border: "1px solid #b2f5ea" }}>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>{terap.Nome.split(" ")[0]}, estás a cumprir! 💪</div>
-                        <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.6 }}>
-                          <strong>{apoiosPorHora} apoios por hora</strong> e <strong>{apoiosSemana} por semana</strong> nas tuas {hLetivas}h diretas. O teu esforço conta e faz diferença para toda a equipa — é assim que o CAIDI funciona bem. Continua com este ritmo!
-                        </div>
+                      <div style={{ marginTop: 10 }}>
+                        {(() => {
+                          const nome = terap.Nome.split(" ")[0];
+                          const acimaMeta = mq.ef >= mq.mMin;
+                          const acimaE2 = mq.ef >= mq.mE2;
+                          const acimaE3 = mq.ef >= mq.mE3;
+                          const pct = mq.mMin > 0 ? Math.round((mq.ef / mq.mMin) * 100) : 100;
+                          
+                          // Badges conquistados
+                          const badges = [];
+                          if (acimaE3) badges.push({ icon: "💎", label: "Top Performer", desc: "Acima do escalão máximo!" });
+                          else if (acimaE2) badges.push({ icon: "💰", label: "Escalão 2", desc: "5€ por apoio extra" });
+                          if (acimaMeta && mq.ef >= mq.mBonus) badges.push({ icon: "🎁", label: "Dia bónus garantido", desc: "+1 dia de férias" });
+                          if (apoiosPorHora >= 1.2) badges.push({ icon: "⚡", label: "Alta eficiência", desc: apoiosPorHora + " apoios/hora" });
+
+                          return (
+                            <div>
+                              {/* Mensagem principal */}
+                              <div style={{ padding: "14px", background: acimaE2 ? "linear-gradient(135deg, #FFF9E6, " + C.greenBg + ")" : C.greenBg, borderRadius: badges.length > 0 ? "14px 14px 0 0" : 14, border: "1px solid " + (acimaE2 ? "#FDEBD0" : "#b2f5ea"), borderBottom: badges.length > 0 ? "none" : undefined }}>
+                                <div style={{ fontSize: 15, fontWeight: 900, color: acimaE3 ? "#E17055" : acimaE2 ? "#d4a017" : C.green }}>
+                                  {acimaE3 ? "💎" : acimaE2 ? "⭐" : "✅"} {nome}, {acimaE3 ? "estás a dar o exemplo!" : acimaE2 ? "estás acima da meta!" : "estás a cumprir!"} 
+                                </div>
+                                <div style={{ fontSize: 13, color: C.dark, marginTop: 6, lineHeight: 1.7 }}>
+                                  <strong>{apoiosPorHora} apoios por hora</strong> e <strong>{apoiosSemana} por semana</strong> — {pct}% da meta. {acimaE3 ? "O teu esforço é notável e faz toda a diferença. A equipa agradece o teu compromisso — é este o espírito que queremos para o CAIDI." : acimaE2 ? "Estás a ir além do esperado e a equipa beneficia disso. Cada apoio extra conta — para ti e para todos." : "O teu trabalho faz diferença para toda a equipa. É assim que o CAIDI funciona bem — continua com este ritmo!"}
+                                </div>
+                                {mq.eurosTotal > 0 && (
+                                  <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 8, display: "inline-block" }}>
+                                    <span style={{ fontSize: 12, fontWeight: 800, color: "#E17055" }}>💶 +{mq.eurosTotal}€ acumulados este quadrimestre</span>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Badges */}
+                              {badges.length > 0 && (
+                                <div style={{ padding: "10px 14px", background: C.white, borderRadius: "0 0 14px 14px", border: "1px solid " + C.grayLight, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                  {badges.map((b, i) => (
+                                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: C.grayBg, borderRadius: 10, padding: "5px 10px" }}>
+                                      <span style={{ fontSize: 16 }}>{b.icon}</span>
+                                      <div>
+                                        <div style={{ fontSize: 11, fontWeight: 800, color: C.dark }}>{b.label}</div>
+                                        <div style={{ fontSize: 9, color: C.darkSoft }}>{b.desc}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
@@ -1367,6 +1496,52 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               <button onClick={() => canN && setAdminQuadIdx(vIdx + 1)} disabled={!canN} style={{ background: canN ? C.tealLight : C.grayBg, border: "none", borderRadius: 10, width: 36, height: 36, fontSize: 16, cursor: canN ? "pointer" : "default", color: canN ? C.teal : C.grayLight, fontWeight: 800 }}>→</button>
             </div>
 
+            {/* Ranking - Top 3 */}
+            {(() => {
+              const ranked = data.terapeutas
+                .filter(t => t["Área"] !== "ADM")
+                .map(t => ({ ...t, m: calcQ(t, vQuad) }))
+                .filter(t => t.m.mMin > 0)
+                .sort((a, b) => b.m.pM - a.m.pM);
+              const top3 = ranked.slice(0, 3);
+              const podiumOrder = top3.length >= 3 ? [top3[1], top3[0], top3[2]] : top3;
+              const podiumHeights = top3.length >= 3 ? [64, 80, 52] : (top3.length === 2 ? [64, 80] : [80]);
+              const medals = ["🥈", "🥇", "🥉"];
+              const podiumMedals = top3.length >= 3 ? [medals[1], medals[0], medals[2]] : (top3.length === 2 ? [medals[1], medals[0]] : [medals[0]]);
+              if (top3.length === 0) return null;
+              return (
+                <Card delay={0} style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>🏆 Ranking</div>
+                  <div style={{ display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 8, marginBottom: 6 }}>
+                    {podiumOrder.map((t, i) => {
+                      const isFirst = (top3.length >= 3 ? i === 1 : i === (top3.length - top3.length));
+                      return (
+                        <div key={t.ID} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
+                          <div style={{ fontSize: isFirst ? 24 : 18, marginBottom: 4 }}>{podiumMedals[i]}</div>
+                          <div style={{ width: 40, height: 40, borderRadius: 12, background: isFirst ? C.teal : C.grayLight, color: isFirst ? C.white : C.darkSoft, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 900 }}>{ini(t.Nome)}</div>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: C.dark, marginTop: 4, textAlign: "center" }}>{t.Nome.split(" ")[0]}</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: t.m.sc, lineHeight: 1 }}>{t.m.pM}%</div>
+                          <div style={{ fontSize: 9, color: C.darkSoft }}>{t.m.ef}/{t.m.mMin}</div>
+                          <div style={{ width: "100%", height: podiumHeights[i], background: isFirst ? "linear-gradient(180deg, " + C.teal + ", " + C.tealDark + ")" : C.grayLight, borderRadius: "8px 8px 0 0", marginTop: 6, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            {t.m.eurosTotal > 0 && <span style={{ fontSize: 10, fontWeight: 800, color: isFirst ? C.white : C.darkSoft }}>💶{t.m.eurosTotal}€</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Alertas - quem está abaixo */}
+                  {ranked.filter(t => t.m.pH < 80 && t.m.dB === 0).length > 0 && (
+                    <div style={{ marginTop: 8, padding: "8px 10px", background: C.redBg, borderRadius: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: C.red, marginBottom: 4 }}>🚨 Abaixo do mínimo (sem baixa):</div>
+                      {ranked.filter(t => t.m.pH < 80 && t.m.dB === 0).map(t => (
+                        <div key={t.ID} style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>• {t.Nome} — {t.m.pM}% ({t.m.ef}/{t.m.mMin})</div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              );
+            })()}
+
             {data.terapeutas.map((t, idx) => {
               const m2 = calcQ(t, vQuad);
               const tIsADM = t["Área"] === "ADM";
@@ -1386,6 +1561,8 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     <div style={{ fontSize: 11, color: C.darkSoft }}>{!tIsADM ? m2.ef + "/" + m2.mMin + " · " : ""}{t["Área"]}</div>
                     {!tIsADM && <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>}
                     {!tIsADM && m2.eurosTotal > 0 && <div style={{ fontSize: 10, color: "#E17055", fontWeight: 700, marginTop: 3 }}>💶 +{m2.eurosTotal}€</div>}
+                    {!tIsADM && m2.ef >= m2.mE3 && <div style={{ fontSize: 10, color: "#E17055", fontWeight: 800, marginTop: 2 }}>💎 Top Performer</div>}
+                    {!tIsADM && m2.ef >= m2.mE2 && m2.ef < m2.mE3 && <div style={{ fontSize: 10, color: "#d4a017", fontWeight: 700, marginTop: 2 }}>⭐ Escalão 2</div>}
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
                     {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/sem → " + m2.limiteCAIDI + " dias CAIDI"}>📋 <span style={{ fontWeight: 800, color: m2.restamCAIDI <= 2 ? C.red : C.blue }}>{m2.restamCAIDI}</span><span style={{ color: C.gray }}>/{m2.limiteCAIDI}</span></div>}
