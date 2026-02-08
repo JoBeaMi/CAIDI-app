@@ -783,6 +783,89 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               </div>
             </Card>
 
+            {/* Análise semanal de produtividade */}
+            <Card delay={0.17} style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 Realidade semanal</div>
+              {(() => {
+                const hLetivas = Number(terap["Horas Letivas"]);
+                const hSemanais = Number(terap["Horas Semanais"]);
+                const hIndiretas = hSemanais - hLetivas;
+                const semanasDecorridas = Math.max(Math.floor(mq.dQuadHoje / 5), 1);
+                const apoiosSemana = Math.round((mq.ef / semanasDecorridas) * 10) / 10;
+                const metaSemanal = Math.round((mq.mMin / Math.max(Math.floor(mq.dLetivoTotal / 5), 1)) * 10) / 10;
+                const apoiosPorHoraReal = hLetivas > 0 ? Math.round((apoiosSemana / hLetivas) * 10) / 10 : 0;
+                const horasDiretasUsadas = mq.ef > 0 ? Math.round((mq.ef / semanasDecorridas) * 10) / 10 : 0;
+                const horasIndiretasReais = hSemanais - horasDiretasUsadas;
+                const abaixo = apoiosSemana < metaSemanal;
+                const menosDeUmPorHora = apoiosPorHoraReal < 1;
+
+                return (
+                  <div>
+                    {/* Resumo grande */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+                      <div style={{ padding: 12, background: abaixo ? C.redBg : C.greenBg, borderRadius: 14, textAlign: "center" }}>
+                        <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Média / semana</div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: abaixo ? C.red : C.green, lineHeight: 1.2 }}>{apoiosSemana}</div>
+                        <div style={{ fontSize: 10, color: C.darkSoft }}>apoios</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: abaixo ? C.red : C.green, marginTop: 2 }}>{abaixo ? "❌ abaixo" : "✅ ok"} de {metaSemanal}/sem</div>
+                      </div>
+                      <div style={{ padding: 12, background: menosDeUmPorHora ? C.redBg : C.greenBg, borderRadius: 14, textAlign: "center" }}>
+                        <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Apoios / hora</div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: menosDeUmPorHora ? C.red : C.green, lineHeight: 1.2 }}>{apoiosPorHoraReal}</div>
+                        <div style={{ fontSize: 10, color: C.darkSoft }}>apoios por hora letiva</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: menosDeUmPorHora ? C.red : C.green, marginTop: 2 }}>{menosDeUmPorHora ? "❌ < 1/hora" : "✅ ≥ 1/hora"}</div>
+                      </div>
+                    </div>
+
+                    {/* Distribuição horária */}
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.darkSoft, marginBottom: 6 }}>⏱ As tuas {hSemanais}h semanais:</div>
+                    <div style={{ height: 24, borderRadius: 8, overflow: "hidden", display: "flex", marginBottom: 6 }}>
+                      <div style={{ width: (hLetivas / hSemanais * 100) + "%", background: C.teal, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.white, fontWeight: 800 }}>{hLetivas}h diretas</div>
+                      <div style={{ width: (hIndiretas / hSemanais * 100) + "%", background: C.gray, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.white, fontWeight: 800 }}>{hIndiretas}h indiretas</div>
+                    </div>
+
+                    {/* O que deviam fazer vs o que fazem */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: C.grayBg, borderRadius: 8 }}>
+                        <span style={{ fontSize: 12, color: C.darkSoft }}>Horas diretas (letivas)</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: C.teal }}>{hLetivas}h / sem</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: C.white, borderRadius: 8 }}>
+                        <span style={{ fontSize: 12, color: C.darkSoft }}>Apoios reais / semana</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: abaixo ? C.red : C.green }}>{apoiosSemana}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: C.grayBg, borderRadius: 8 }}>
+                        <span style={{ fontSize: 12, color: C.darkSoft }}>Meta semanal</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: C.teal }}>{metaSemanal}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: C.white, borderRadius: 8 }}>
+                        <span style={{ fontSize: 12, color: C.darkSoft }}>Semanas decorridas</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: C.dark }}>{semanasDecorridas}</span>
+                      </div>
+                    </div>
+
+                    {/* Mensagem final clara */}
+                    {abaixo && (
+                      <div style={{ marginTop: 10, padding: "10px 12px", background: C.yellowBg, borderRadius: 10, border: "1px solid #FDEBD0" }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: C.red }}>⚠️ Em {semanasDecorridas} semanas fizeste {mq.ef} apoios.</div>
+                        <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
+                          Com <strong>{hLetivas}h diretas</strong> por semana, devias fazer pelo menos <strong>{metaSemanal} apoios/semana</strong> (≈ 1 por hora). Estás a fazer <strong>{apoiosSemana}</strong>.
+                        </div>
+                        <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
+                          Isto significa que estás a usar mais tempo indireto do que o previsto ({hIndiretas}h).
+                        </div>
+                      </div>
+                    )}
+                    {!abaixo && (
+                      <div style={{ marginTop: 10, padding: "10px 12px", background: C.greenBg, borderRadius: 10, border: "1px solid #b2f5ea" }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: C.green }}>✅ Bom ritmo! {apoiosSemana} apoios/semana em {hLetivas}h diretas.</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </Card>
+
             {/* Objetivos */}
             <Card delay={0.2} style={{ marginTop: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>⭐ Objetivos</div>
