@@ -124,7 +124,7 @@ function contarDiasTrabAus(ausList, hor) {
   return count;
 }
 
-function calc(t, apoios, aus, periodos, fecho, horarios) {
+function calc(t, efCount, aus, periodos, fecho, horarios) {
   const quads = buildQuadrimestres(periodos);
   const q = quadAtual(quads);
   if (!q) return emptyMetrics();
@@ -150,7 +150,7 @@ function calc(t, apoios, aus, periodos, fecho, horarios) {
   const mE3 = Math.round(hSem * (dLetivoTotal - dB) * 1.05);
   const progQuad = dQuadTotal > 0 ? dQuadHoje / dQuadTotal : 1;
   const mH = Math.round(mMin * progQuad);
-  const ef = apoios.filter(a => a.Tipo === "Efetivado" && a.Data >= q.qInicio && a.Data <= q.qFim).length;
+  const ef = typeof efCount === "number" ? efCount : (Array.isArray(efCount) ? efCount.filter(a => a.Tipo === "Efetivado" && a.Data >= q.qInicio && a.Data <= q.qFim).length : 0);
   const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
   const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
   // Cálculo de € ganhos
@@ -523,7 +523,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const [showForm, setShowForm] = useState(null);
   const [quadIdx, setQuadIdx] = useState(null); // null = atual
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
-  const ap = data.apoios.filter(a => a.ID_Terapeuta === terap.ID);
+  const ap = data.resumoApoios && data.resumoApoios[terap.ID] ? data.resumoApoios[terap.ID].ef : 0;
   const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios);
   const saudePedidos = aus.filter(a => !a.Motivo.includes("Férias")).sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
@@ -602,8 +602,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const hoje = new Date();
               const equipaData = equipaTeraps.map(t => {
                 const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-                const tAp = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
-                const tM = calc(t, tAp, tAus, data.periodos, data.fecho, data.horarios);
+                const tEf = data.resumoApoios && data.resumoApoios[t.ID] ? data.resumoApoios[t.ID].ef : 0;
+                const tM = calc(t, tEf, tAus, data.periodos, data.fecho, data.horarios);
                 const emBaixa = tAus.some(a => a.Motivo === "Baixa Médica" && a.Estado === "Aprovado" && hojeStr >= a["Data Início"] && hojeStr <= a["Data Fim"]);
                 return { ...t, m: tM, emBaixa, hLetivas: Number(t["Horas Letivas"]) || 0 };
               });
@@ -611,24 +611,18 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const emBaixaCount = equipaData.filter(t => t.emBaixa).length;
               
               // --- SEMANAL ---
-              // Semana atual (seg-dom)
               const diaSem = hoje.getDay() || 7;
-              const seg = new Date(hoje); seg.setDate(hoje.getDate() - diaSem + 1);
-              const segStr = seg.toISOString().slice(0, 10);
-              // Semana passada
-              const segPassada = new Date(seg); segPassada.setDate(seg.getDate() - 7);
-              const domPassada = new Date(seg); domPassada.setDate(seg.getDate() - 1);
-              const segPassadaStr = segPassada.toISOString().slice(0, 10);
-              const domPassadaStr = domPassada.toISOString().slice(0, 10);
               
               // Capacidade semanal = soma horas letivas de todos os ativos (não de baixa)
               const ativos = equipaData.filter(t => !t.emBaixa && t.hLetivas > 0);
               const capSemanal = ativos.reduce((s, t) => s + t.hLetivas, 0);
               
-              // Apoios esta semana e semana passada (toda a equipa, não só ativos)
-              const terapIds = new Set(equipaTeraps.map(t => t.ID));
-              const apoiosEstaSem = data.apoios.filter(a => a.Tipo === "Efetivado" && a.Data >= segStr && a.Data <= hojeStr && terapIds.has(a.ID_Terapeuta)).length;
-              const apoiosSemPassada = data.apoios.filter(a => a.Tipo === "Efetivado" && a.Data >= segPassadaStr && a.Data <= domPassadaStr && terapIds.has(a.ID_Terapeuta)).length;
+              // Somar semanas do resumo pré-calculado no servidor
+              let apoiosEstaSem = 0, apoiosSemPassada = 0;
+              equipaTeraps.forEach(t => {
+                const r = data.resumoApoios && data.resumoApoios[t.ID];
+                if (r) { apoiosEstaSem += r.semanaAtual || 0; apoiosSemPassada += r.semanaPassada || 0; }
+              });
               
               // Dias úteis já passados esta semana (para proporcionalizar)
               const diasUteisSem = Math.min(diaSem <= 5 ? diaSem : 5, 5);
@@ -1515,7 +1509,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
           // Calc metrics for a specific quad
           const calcQ = (t, qx) => {
             const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-            const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
+            const ap2 = data.resumoApoios && data.resumoApoios[t.ID] ? data.resumoApoios[t.ID].ef : 0;
             if (!qx) return calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios);
             const hLD = Number(t["Horas Letivas"]) / 5;
             const hSem = Number(t["Horas Semanais"]) / 5;
@@ -1643,7 +1637,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Pedidos pendentes {pend.length > 0 && <span style={{ background: C.redBg, color: C.red, padding: "2px 8px", borderRadius: 8, fontSize: 13, fontWeight: 800, marginLeft: 8 }}>{pend.length}</span>}</h2>
             {pend.length === 0 ? (
               <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}><div style={{ textAlign: "center", fontSize: 14, fontWeight: 700, color: C.green }}>✓ Sem pedidos pendentes!</div></Card>
-            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.apoios.filter(a => a.ID_Terapeuta === t.ID), data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios) : null; return (
+            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.resumoApoios && data.resumoApoios[t.ID] ? data.resumoApoios[t.ID].ef : 0, data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios) : null; return (
               <Card key={i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1745,7 +1739,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               if (terFilt.length === 0) return <Card style={{ marginBottom: 10 }}><div style={{ textAlign: "center", fontSize: 13, color: C.gray }}>Nenhum terapeuta encontrado</div></Card>;
               return terFilt.map(t => {
                 const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-                const ap2 = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
+                const ap2 = data.resumoApoios && data.resumoApoios[t.ID] ? data.resumoApoios[t.ID].ef : 0;
                 const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios);
                 const tIsADM = t["Área"] === "ADM";
                 const pedidos = a2.sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
