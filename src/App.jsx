@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
    ═══════════════════════════════════════════════════════════════ */
 const API_URL = "https://script.google.com/macros/s/AKfycbxTBG-Q9sbIyYWx05QZkl6BoFscIWINdJksYofOozrTqZ-iHI7zQ_gkIIVTbBItahkwfQ/exec";
 /* ⚠️  Após atualizar o Apps Script, faz novo deploy e cola o URL atualizado acima */
-
+h
 /* ═══════════════════════ PALETA CAIDI ═══════════════════════ */
 const C = {
   teal: "#00A89D", tealDark: "#008F86", tealLight: "#E6F7F6", tealSoft: "#B2E8E4",
@@ -826,7 +826,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
         )}
 
         {/* ═══ TAB META ═══ */}
-        {tab === "objetivo" && !isADM && (
+        {tab === "objetivo" && !isADM && (() => { try { return (
           <div>
             {/* Navegação quadrimestres */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
@@ -1159,7 +1159,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               )}
             </Card>
           </div>
-        )}
+        ); } catch(err) { return <div style={{background:"#fcc",padding:16,borderRadius:12,margin:8,fontSize:12,color:"red",wordBreak:"break-all"}}>Erro tab objetivo: {String(err)}</div>; } })()}
 
         {/* ═══ TAB FÉRIAS ═══ */}
         {tab === "ferias" && (
