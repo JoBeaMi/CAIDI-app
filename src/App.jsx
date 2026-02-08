@@ -505,8 +505,8 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
             {isFerias && metrics.diasTrab < 5 && !esgotouCAIDI && !ultrapassaCAIDI && metrics.restamCAIDI > 0 && metrics.restamCAIDI <= 3 && (
               <div style={{ background: C.yellowBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: "#E17055", fontWeight: 600, marginBottom: 16 }}>⚠️ Restam-te <strong>{metrics.restamCAIDI} dias de trabalho</strong> disponíveis no CAIDI (de {metrics.limiteCAIDI})</div>
             )}
-            {type === "baixa" && <div style={{ background: C.purpleBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.purple, fontWeight: 600, marginBottom: 16 }}>🏥 A baixa <strong>não desconta</strong> férias. A meta ajusta-se.</div>}
-            {type === "formacao" && <div style={{ background: C.orangeBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.orange, fontWeight: 600, marginBottom: 16 }}>🎓 Formações <strong>não descontam</strong> férias nem meta.</div>}
+            {type === "baixa" && <div style={{ background: C.purpleBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.purple, fontWeight: 600, marginBottom: 16 }}>🏥 A baixa <strong>não desconta</strong> férias. O objetivo ajusta-se.</div>}
+            {type === "formacao" && <div style={{ background: C.orangeBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.orange, fontWeight: 600, marginBottom: 16 }}>🎓 Formações <strong>não descontam</strong> férias nem o objetivo.</div>}
             {type === "falta" && motivo === "Falta Injustificada" && <div style={{ background: C.redBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.red, fontWeight: 600, marginBottom: 16 }}>⚠️ Faltas injustificadas podem ter <strong>impacto na avaliação</strong>.</div>}
             {errMsg && <div style={{ background: C.redBg, color: C.red, padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>⚠️ {errMsg}</div>}
             <Btn onClick={submit} disabled={sub || esgotouCAIDI || ultrapassaCAIDI} variant={btnV[type]}>{sub ? "A enviar..." : esgotouCAIDI ? "Sem dias disponíveis" : ultrapassaCAIDI ? "Dias insuficientes" : "Enviar pedido"}</Btn>
@@ -530,7 +530,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const pend = aus.filter(p => p.Estado === "Pendente").length;
   const handleSubmit = (n) => { onAddAusencia(n); onRefresh(); };
   const isADM = terap["Área"] === "ADM";
-  const tabs = [{ id: "inicio", icon: "🏠", l: "Início" }, ...(!isADM ? [{ id: "meta", icon: "🎯", l: "Meta" }] : []), { id: "ferias", icon: "🌴", l: "Férias" }, { id: "ausencias", icon: "📑", l: "Ausências" }, { id: "pedidos", icon: "📋", l: "Pedidos" }];
+  const tabs = [{ id: "inicio", icon: "🏠", l: "Início" }, ...(!isADM ? [{ id: "objetivo", icon: "🎯", l: "Objetivo" }] : []), { id: "ferias", icon: "🌴", l: "Férias" }, { id: "ausencias", icon: "📑", l: "Ausências" }, { id: "pedidos", icon: "📋", l: "Pedidos" }];
   const q = m.quad;
 
   // Métricas para um quadrimestre específico (para navegação)
@@ -693,28 +693,51 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                     {frase.cta}
                   </div>
                   
-                  {/* Desempenho do período */}
+                  {/* O que são apoios */}
+                  <div style={{ fontSize: 11, color: C.darkSoft, lineHeight: 1.6, marginBottom: 10, padding: "8px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 10 }}>
+                    Sessões de terapia, avaliações, reuniões de escola e intervenção parental. Cada um dura 45 minutos. Tudo isto conta como <strong>apoio direto</strong> no CAIDI.
+                  </div>
+
+                  {/* Números do período */}
                   <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 14, padding: "12px" }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>📊 O nosso desempenho</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>📊 {q ? q.periodo : "Período"} · até hoje</div>
                     
-                    <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7, marginBottom: 10 }}>
-                      Esta equipa tem um potencial enorme. Cada hora direta permite pelo menos um apoio de 45 minutos. Sessões, avaliações, reuniões de escola, intervenção parental, tudo conta para aquilo que consideramos um apoio direto no CAIDI. Desde o início do {q ? q.periodo : "período"} até ao momento, a um ritmo mínimo de 1 apoio por hora direta, tivemos capacidade para <strong>{capPeriodo}</strong> apoios. Realizámos <strong>{apoiosPeriodo}</strong> ({pctPeriodo}%).
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontSize: 10, color: C.gray, fontWeight: 600 }}>Capacidade</div>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: C.grayLight, lineHeight: 1.1 }}>{capPeriodo}</div>
+                      </div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 10, color: C.gray, fontWeight: 600 }}>Realizados</div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: pctPeriodo >= 95 ? C.green : pctPeriodo >= 80 ? C.teal : C.red, lineHeight: 1.1 }}>{apoiosPeriodo}</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontSize: 32, fontWeight: 900, color: pctPeriodo >= 95 ? C.green : pctPeriodo >= 80 ? C.teal : C.red, lineHeight: 1.1 }}>{pctPeriodo}%</div>
+                      </div>
                     </div>
                     
                     {/* Barra */}
-                    <div style={{ height: 12, background: C.grayLight, borderRadius: 6, overflow: "hidden", marginBottom: 6 }}>
-                      <div style={{ height: "100%", width: Math.min(pctPeriodo, 100) + "%", background: pctPeriodo >= 95 ? C.green : pctPeriodo >= 80 ? "linear-gradient(90deg, " + C.teal + ", " + C.tealDark + ")" : "linear-gradient(90deg, " + C.red + ", #E17055cc)", borderRadius: 6, transition: "width 1.2s ease" }} />
+                    <div style={{ height: 10, background: C.grayLight, borderRadius: 5, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: Math.min(pctPeriodo, 100) + "%", background: pctPeriodo >= 95 ? C.green : pctPeriodo >= 80 ? "linear-gradient(90deg, " + C.teal + ", " + C.tealDark + ")" : "linear-gradient(90deg, " + C.red + ", #E17055cc)", borderRadius: 5, transition: "width 1.2s ease" }} />
                     </div>
-                    <div style={{ textAlign: "center", fontSize: 18, fontWeight: 900, color: pctPeriodo >= 95 ? C.green : pctPeriodo >= 80 ? C.teal : C.red }}>{pctPeriodo}%</div>
+                    <div style={{ fontSize: 10, color: C.gray, marginTop: 4, textAlign: "center" }}>a 1 apoio por hora direta (mínimo)</div>
+                  </div>
+
+                  {/* Daqui para a frente */}
+                  <div style={{ marginTop: 8, background: "rgba(255,255,255,0.7)", borderRadius: 14, padding: "12px" }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📅 Daqui até ao final do período</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <div style={{ fontSize: 28, fontWeight: 900, color: C.teal, lineHeight: 1 }}>{capRestante}</div>
+                      <div style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.4 }}>apoios de capacidade restante</div>
+                    </div>
                     
-                    {/* Mensagem para a frente */}
-                    <div style={{ marginTop: 10, padding: "10px 12px", background: pctPeriodo >= 95 ? C.greenBg : pctPeriodo >= 90 ? C.tealLight : C.yellowBg, borderRadius: 10, fontSize: 12, color: C.dark, lineHeight: 1.7 }}>
+                    <div style={{ padding: "10px 12px", background: pctPeriodo >= 95 ? C.greenBg : pctPeriodo >= 90 ? C.tealLight : C.yellowBg, borderRadius: 10, fontSize: 13, fontWeight: 700, color: C.dark, lineHeight: 1.6 }}>
                       {pctPeriodo >= 95 ? (
-                        <>Estamos a cumprir. O resultado da equipa é a soma do compromisso de cada um. Vamos manter este ritmo até ao final.</>
+                        "Estamos a cumprir. Vamos manter este ritmo até ao final."
                       ) : pctPeriodo >= 90 ? (
-                        <>Daqui até ao final do período temos capacidade para mais <strong>{capRestante}</strong> apoios. Estamos perto, se cada um fizer a sua parte chegamos lá.</>
+                        "Estamos perto. Se cada um fizer a sua parte, chegamos lá."
                       ) : (
-                        <>Daqui até ao final do período temos capacidade para mais <strong>{capRestante}</strong> apoios. Não podemos recuperar o que já passou, mas cada um de nós tem a responsabilidade de garantir que, a partir de agora, cada hora conta. O resultado da equipa é a soma do compromisso de cada um.</>
+                        "Cada um de nós tem a responsabilidade de garantir que, a partir de agora, cada hora conta."
                       )}
                     </div>
                   </div>
@@ -736,7 +759,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
                 <Ring value={m.ef} max={m.mMin} size={96} stroke={9} color={m.sc}>
                   <div style={{ fontSize: 22, fontWeight: 900, color: C.dark, lineHeight: 1 }}>{m.pM}%</div>
-                  <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>da meta</div>
+                  <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>do objetivo</div>
                 </Ring>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
@@ -782,7 +805,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             {!isADM && (
             <div style={{ marginTop: 8 }}>
               {m.ef < m.mBonus ? (
-                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.yellowBg + ", " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>Faltam-te {m.mBonus - m.ef} apoios para o dia bónus!</div><div style={{ fontSize: 12, color: C.darkSoft }}>85% da meta = +1 dia de férias</div></div></div></Card>
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.yellowBg + ", " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>Faltam-te {m.mBonus - m.ef} apoios para o dia bónus!</div><div style={{ fontSize: 12, color: C.darkSoft }}>85% do objetivo = +1 dia de férias</div></div></div></Card>
               ) : m.ef < m.mMin ? (
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Dia bónus garantido! ✅</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mMin - m.ef} para a meta mínima</div></div></div></Card>
               ) : m.ef < m.mE2 ? (
@@ -800,7 +823,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
         )}
 
         {/* ═══ TAB META ═══ */}
-        {tab === "meta" && !isADM && (
+        {tab === "objetivo" && !isADM && (
           <div>
             {/* Navegação quadrimestres */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
@@ -818,16 +841,16 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             <Card delay={0} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.teal, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>💡 Como funciona</div>
               <div style={{ fontSize: 13, color: C.darkSoft, lineHeight: 1.7 }}>
-                A tua meta é calculada com base nos <strong>{mq.dLetivoTotal} dias do período letivo</strong> ({viewQuad ? viewQuad.periodo : "—"}). É nestes dias que deves, idealmente, cumprir os apoios.
+                O teu objetivo é calculado com base nos <strong>{mq.dLetivoTotal} dias do período letivo</strong> ({viewQuad ? viewQuad.periodo : "—"}). É nestes dias que deves, idealmente, cumprir os apoios.
               </div>
               <div style={{ fontSize: 13, color: C.darkSoft, lineHeight: 1.7, marginTop: 6 }}>
-                Mas tens <strong>o quadrimestre inteiro</strong> ({mq.dQuadTotal} dias úteis) para os atingir. Os <strong>{mq.dExtraTotal} dias extra</strong> fora do letivo são a tua margem — para recuperar ou ultrapassar a meta.
+                Mas tens <strong>o quadrimestre inteiro</strong> ({mq.dQuadTotal} dias úteis) para os atingir. Os <strong>{mq.dExtraTotal} dias extra</strong> fora do letivo são a tua margem — para recuperar ou ultrapassar o objetivo.
               </div>
             </Card>
 
             {/* Barra visual dupla: letivo + margem */}
             <Card delay={0.08} style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 Tempo e meta</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 Tempo e objetivo</div>
               
               {/* Barra de tempo */}
               <div style={{ marginBottom: 12 }}>
@@ -859,7 +882,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                   <div style={{ height: "100%", width: Math.min(mq.pM, 100) + "%", background: "linear-gradient(90deg, " + mq.sc + ", " + mq.sc + "cc)", borderRadius: 6, transition: "width 1s ease" }} />
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginTop: 3 }}>
-                  <span style={{ color: mq.sc, fontWeight: 700 }}>{mq.pM}% da meta</span>
+                  <span style={{ color: mq.sc, fontWeight: 700 }}>{mq.pM}% do objetivo</span>
                   <span style={{ color: C.gray }}>+5%: {mq.mE2}</span>
                 </div>
               </div>
@@ -873,11 +896,11 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                   <div style={{ fontSize: 22, fontWeight: 900, color: C.dark }}>{mq.ef}</div>
                 </div>
                 <div style={{ padding: 10, background: mq.diff >= 0 ? C.greenBg : C.redBg, borderRadius: 12 }}>
-                  <div style={{ fontSize: 10, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>{mq.passado ? "Meta" : "Esperado"}</div>
+                  <div style={{ fontSize: 10, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>{mq.passado ? "Objetivo" : "Esperado"}</div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: mq.diff >= 0 ? C.green : C.red }}>{mq.passado ? mq.mMin : mq.mH}</div>
                 </div>
                 <div style={{ padding: 10, background: C.tealLight, borderRadius: 12 }}>
-                  <div style={{ fontSize: 10, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Meta total</div>
+                  <div style={{ fontSize: 10, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Objetivo total</div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: C.teal }}>{mq.mMin}</div>
                 </div>
               </div>
@@ -945,15 +968,15 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                   <div>
                     {/* Dois indicadores principais */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-                      <div style={{ padding: 12, background: menosDeUmPorHora ? C.redBg : C.greenBg, borderRadius: 14, textAlign: "center" }}>
+                      <div style={{ padding: 12, background: aphBg, borderRadius: 14, textAlign: "center" }}>
                         <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Média semanal</div>
-                        <div style={{ fontSize: 28, fontWeight: 900, color: menosDeUmPorHora ? C.red : C.green, lineHeight: 1.2 }}>{apoiosSemana}</div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: aphColor, lineHeight: 1.2 }}>{apoiosSemana}</div>
                         <div style={{ fontSize: 10, color: C.darkSoft }}>apoios / semana</div>
                         <div style={{ fontSize: 10, fontWeight: 700, color: C.gray, marginTop: 2 }}>objetivo: {metaSemanal}</div>
                       </div>
-                      <div style={{ padding: 12, background: menosDeUmPorHora ? C.redBg : C.greenBg, borderRadius: 14, textAlign: "center" }}>
+                      <div style={{ padding: 12, background: aphBg, borderRadius: 14, textAlign: "center" }}>
                         <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Rendimento</div>
-                        <div style={{ fontSize: 28, fontWeight: 900, color: menosDeUmPorHora ? C.red : C.green, lineHeight: 1.2 }}>{apoiosPorHora}</div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: aphColor, lineHeight: 1.2 }}>{apoiosPorHora}</div>
                         <div style={{ fontSize: 10, color: C.darkSoft }}>apoios / hora direta</div>
                         <div style={{ fontSize: 10, fontWeight: 700, color: C.gray, marginTop: 2 }}>mínimo: 1.0</div>
                       </div>
@@ -988,7 +1011,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         ["Total de apoios feitos", mq.ef, C.dark],
                         ["Semanas decorridas", semanasDecorridas, C.dark],
                         ["Horas diretas disponíveis", horasLetivasTrabalhadas + "h (" + semanasDecorridas + " × " + hLetivas + "h)", C.teal],
-                        ["Apoios por hora direta", apoiosPorHora, menosDeUmPorHora ? C.red : C.green],
+                        ["Apoios por hora direta", apoiosPorHora, aphColor],
                       ].map(([label, val, color], i) => (
                         <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 10px", background: i % 2 === 0 ? C.grayBg : C.white, borderRadius: 8 }}>
                           <span style={{ fontSize: 12, color: C.darkSoft }}>{label}</span>
@@ -1002,7 +1025,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                       {(() => {
                         const nome = terap.Nome.split(" ")[0];
                         const aph = Number(apoiosPorHora);
-                        const acimaMeta = mq.ef >= mq.mMin;
+                        const acimaObjetivo = mq.ef >= mq.mMin;
                         const acimaE2 = mq.ef >= mq.mE2;
                         const acimaE3 = mq.ef >= mq.mE3;
                         const pct = mq.mMin > 0 ? Math.round((mq.ef / mq.mMin) * 100) : 100;
@@ -1014,86 +1037,47 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         if (acimaMeta && mq.ef >= mq.mBonus) badges.push({ icon: "🎁", label: "Dia bónus garantido", desc: "+1 dia de férias" });
                         if (aph >= 1.2) badges.push({ icon: "⚡", label: "Alta eficiência", desc: aph + " apoios/hora direta" });
 
-                        // ⚫ CRÍTICO < 0.5
+                        // 🔴 CRÍTICO < 0.5
                         if (aph < 0.5) return (
                           <div>
                             <div style={{ padding: "14px", background: C.redBg, borderRadius: "14px 14px 0 0", border: "1px solid #f5c6c0", borderBottom: "none" }}>
                               <div style={{ fontSize: 15, fontWeight: 900, color: C.red, marginBottom: 8 }}>{nome}, estás a {aph} apoios por hora direta.</div>
                               <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7 }}>
-                                Em <strong>{semanasDecorridas} semanas</strong> com <strong>{horasLetivasTrabalhadas}h de tempo direto</strong> realizaste <strong>{mq.ef} apoios</strong>. É um valor muito abaixo do que a equipa e os utentes precisam.
-                              </div>
-                              <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7, marginTop: 8 }}>
-                                Precisamos de conversar. Contacta a coordenação com urgência para analisarmos a situação e encontrarmos um caminho.
-                              </div>
-                            </div>
-                            <div style={{ padding: "10px 14px", background: C.white, borderRadius: "0 0 14px 14px", border: "1px solid " + C.grayLight }}>
-                              <div style={{ fontSize: 10, color: C.gray, fontStyle: "italic", lineHeight: 1.5 }}>Este alerta constitui um aviso formal e fica registado no teu histórico de desempenho.</div>
-                            </div>
-                          </div>
-                        );
-
-                        // 🔴 SÉRIO 0.5 - 0.75
-                        if (aph < 0.75) return (
-                          <div>
-                            <div style={{ padding: "14px", background: C.redBg, borderRadius: "14px 14px 0 0", border: "1px solid #f5c6c0", borderBottom: "none" }}>
-                              <div style={{ fontSize: 15, fontWeight: 900, color: C.red, marginBottom: 8 }}>{nome}, estás a {aph} apoios por hora direta.</div>
-                              <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7 }}>
-                                É um valor significativamente abaixo do mínimo de 1 apoio por hora direta. Em <strong>{semanasDecorridas} semanas</strong> com <strong>{horasLetivasTrabalhadas}h de tempo direto</strong> realizaste <strong>{mq.ef} apoios</strong>.
-                              </div>
-                              <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7, marginTop: 6 }}>
-                                Quando um elemento fica muito abaixo, os recursos apertam e são os utentes que acabam prejudicados. Precisamos que isto mude.
-                              </div>
-                            </div>
-                            <div style={{ padding: "14px", background: C.white, border: "1px solid " + C.grayLight, borderTop: "none", borderBottom: "none" }}>
-                              <div style={{ fontSize: 12, fontWeight: 800, color: C.dark, marginBottom: 8 }}>📋 O que podes fazer já:</div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                                {[
-                                  { icon: "📢", text: "Tens horários por preencher? Avisa a coordenação, há lista de espera." },
-                                  { icon: "🔍", text: "Utentes que faltam sempre? Sinaliza. Essa vaga pode mudar a vida de outra criança." },
-                                  { icon: "💬", text: "Precisas de ajuda? Fala com a coordenação. Pedir ajuda não é fraqueza, é responsabilidade." },
-                                  { icon: "⏰", text: "Cada semana abaixo do mínimo torna a recuperação mais difícil." },
-                                ].map((a, i) => (
-                                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                                    <span style={{ fontSize: 15, flexShrink: 0 }}>{a.icon}</span>
-                                    <span style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.6 }}>{a.text}</span>
-                                  </div>
-                                ))}
+                                Em {semanasDecorridas} semanas com {horasLetivasTrabalhadas}h de tempo direto realizaste {mq.ef} apoios. Precisamos de perceber o que se passa. Contacta a coordenação para conversarmos.
                               </div>
                             </div>
                             <div style={{ padding: "10px 14px", background: C.grayBg, borderRadius: "0 0 14px 14px", border: "1px solid " + C.grayLight }}>
-                              <div style={{ fontSize: 10, color: C.gray, fontStyle: "italic", lineHeight: 1.5 }}>Este registo fica associado ao teu histórico de desempenho.</div>
+                              <div style={{ fontSize: 10, color: C.gray, fontStyle: "italic" }}>Este alerta constitui um aviso formal e fica registado no teu histórico de desempenho.</div>
                             </div>
                           </div>
                         );
 
-                        // 🟠 ABAIXO 0.75 - 0.90
-                        if (aph < 0.90) return (
+                        // 🟠 SÉRIO 0.5 - 0.75
+                        if (aph < 0.75) return (
                           <div>
-                            <div style={{ padding: "14px", background: C.yellowBg, borderRadius: "14px 14px 0 0", border: "1px solid #FDEBD0", borderBottom: "none" }}>
-                              <div style={{ fontSize: 15, fontWeight: 900, color: "#E17055", marginBottom: 8 }}>{nome}, estás a {aph} apoios por hora direta.</div>
+                            <div style={{ padding: "14px", background: C.orangeBg, borderRadius: "14px 14px 0 0", border: "1px solid #f5c6c0", borderBottom: "none" }}>
+                              <div style={{ fontSize: 15, fontWeight: 900, color: C.orange, marginBottom: 8 }}>{nome}, estás a {aph} apoios por hora direta.</div>
                               <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7 }}>
-                                Nas últimas <strong>{semanasDecorridas} semanas</strong> tiveste <strong>{horasLetivasTrabalhadas}h de tempo direto</strong> e realizaste <strong>{mq.ef} apoios</strong>. O mínimo de 1 apoio por hora direta já inclui 15 minutos de margem entre cada apoio. Precisamos que te aproximes.
+                                Em {semanasDecorridas} semanas com {horasLetivasTrabalhadas}h de tempo direto realizaste {mq.ef} apoios. Há alguma razão para estares abaixo? Precisamos que fales com a coordenação para percebermos o que se passa e como podemos ajudar.
                               </div>
                             </div>
-                            <div style={{ padding: "14px", background: C.white, borderRadius: "0 0 14px 14px", border: "1px solid " + C.grayLight }}>
-                              <div style={{ fontSize: 12, fontWeight: 800, color: C.dark, marginBottom: 8 }}>📋 O que podes fazer:</div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                                {[
-                                  { icon: "📢", text: "Tens horários por preencher? Avisa a coordenação, há lista de espera." },
-                                  { icon: "🔍", text: "Utentes que faltam sempre? Sinaliza esses casos. Uma vaga ocupada por quem não aparece faz falta a quem precisa." },
-                                  { icon: "💬", text: "Algo não está a correr bem? Fala connosco. Só podemos ajudar se soubermos o que se passa." },
-                                ].map((a, i) => (
-                                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                                    <span style={{ fontSize: 15, flexShrink: 0 }}>{a.icon}</span>
-                                    <span style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.6 }}>{a.text}</span>
-                                  </div>
-                                ))}
-                              </div>
+                            <div style={{ padding: "10px 14px", background: C.grayBg, borderRadius: "0 0 14px 14px", border: "1px solid " + C.grayLight }}>
+                              <div style={{ fontSize: 10, color: C.gray, fontStyle: "italic" }}>Este registo fica associado ao teu histórico de desempenho.</div>
                             </div>
                           </div>
                         );
 
-                        // 🟡 QUASE 0.90 - 1.0
+                        // 🟡 ABAIXO 0.75 - 0.90
+                        if (aph < 0.90) return (
+                          <div style={{ padding: "14px", background: C.yellowBg, borderRadius: 14, border: "1px solid #FDEBD0" }}>
+                            <div style={{ fontSize: 15, fontWeight: 900, color: "#d4a017", marginBottom: 8 }}>{nome}, estás a {aph} apoios por hora direta.</div>
+                            <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7 }}>
+                              Em {semanasDecorridas} semanas com {horasLetivasTrabalhadas}h de tempo direto realizaste {mq.ef} apoios. Se há algo a afetar os teus resultados, fala com a coordenação para encontrarmos solução.
+                            </div>
+                          </div>
+                        );
+
+                        // 🟢 QUASE 0.90 - 1.0 (verde claro)
                         if (aph < 1.0) return (
                           <div style={{ padding: "14px", background: C.tealLight, borderRadius: 14, border: "1px solid " + C.tealSoft }}>
                             <div style={{ fontSize: 15, fontWeight: 900, color: C.tealDark, marginBottom: 8 }}>
@@ -1110,10 +1094,10 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                           <div>
                             <div style={{ padding: "14px", background: acimaE2 ? "linear-gradient(135deg, #FFF9E6, " + C.greenBg + ")" : C.greenBg, borderRadius: badges.length > 0 ? "14px 14px 0 0" : 14, border: "1px solid " + (acimaE2 ? "#FDEBD0" : "#b2f5ea"), borderBottom: badges.length > 0 ? "none" : undefined }}>
                               <div style={{ fontSize: 15, fontWeight: 900, color: acimaE3 ? "#E17055" : acimaE2 ? "#d4a017" : C.green }}>
-                                {acimaE3 ? "💎" : acimaE2 ? "⭐" : "✅"} {nome}, {acimaE3 ? "estás a dar o exemplo!" : acimaE2 ? "estás acima da meta!" : "estás a cumprir!"} 
+                                {acimaE3 ? "💎" : acimaE2 ? "⭐" : "✅"} {nome}, {acimaE3 ? "estás a dar o exemplo!" : acimaE2 ? "estás acima do objetivo!" : "estás a cumprir!"} 
                               </div>
                               <div style={{ fontSize: 13, color: C.dark, marginTop: 6, lineHeight: 1.7 }}>
-                                <strong>{aph} apoios por hora direta</strong> e <strong>{apoiosSemana} por semana</strong> — {pct}% da meta. {acimaE3 ? "O teu esforço é notável e faz toda a diferença. A equipa agradece o teu compromisso." : acimaE2 ? "Estás a ir além do esperado e a equipa beneficia disso. Cada apoio extra conta." : "O teu contributo faz diferença e está a ajudar a equipa a cumprir a sua missão. Obrigado pelo teu compromisso. Continua assim."}
+                                <strong>{aph} apoios por hora direta</strong> e <strong>{apoiosSemana} por semana</strong> — {pct}% do objetivo. {acimaE3 ? "O teu esforço é notável e faz toda a diferença. A equipa agradece o teu compromisso." : acimaE2 ? "Estás a ir além do esperado e a equipa beneficia disso. Cada apoio extra conta." : "O teu contributo faz diferença e está a ajudar a equipa a cumprir a sua missão. Obrigado pelo teu compromisso. Continua assim."}
                               </div>
                               {mq.eurosTotal > 0 && (
                                 <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 8, display: "inline-block" }}>
@@ -1147,7 +1131,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             <Card delay={0.2} style={{ marginTop: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>⭐ Objetivos</div>
               {[
-                { l: "Dia bónus de férias", desc: "85% da meta", v: mq.mBonus, icon: "🎁", active: mq.ef >= mq.mBonus, color: C.green },
+                { l: "Dia bónus de férias", desc: "85% do objetivo", v: mq.mBonus, icon: "🎁", active: mq.ef >= mq.mBonus, color: C.green },
                 { l: "Meta mínima", desc: "100%", v: mq.mMin, icon: "🎯", active: mq.ef >= mq.mMin, color: C.teal },
                 { l: "5€ por apoio extra", desc: "Meta + 5%", v: mq.mE2, icon: "💰", active: mq.ef >= mq.mE2, color: C.green },
                 { l: "10€ por apoio extra", desc: "H. semanais + 5%", v: mq.mE3, icon: "💎", active: mq.ef >= mq.mE3, color: "#E17055" },
