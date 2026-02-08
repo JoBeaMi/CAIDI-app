@@ -597,13 +597,11 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
           <div>
             {/* Mensagem da equipa */}
             {!isADM && (() => {
-              // Calcular dados da equipa para o quadrimestre atual
               const equipaTeraps = data.terapeutas.filter(t => t["Área"] !== "ADM");
               const equipaData = equipaTeraps.map(t => {
                 const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
                 const tAp = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
                 const tM = calc(t, tAp, tAus, data.periodos, data.fecho, data.horarios);
-                // Verificar se está de baixa agora
                 const hojeStr = new Date().toISOString().slice(0, 10);
                 const emBaixa = tAus.some(a => a.Motivo === "Baixa Médica" && a.Estado === "Aprovado" && hojeStr >= a["Data Início"] && hojeStr <= a["Data Fim"]);
                 return { ...t, m: tM, emBaixa };
@@ -613,67 +611,67 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const totalEf = ativos.reduce((s, t) => s + t.m.ef, 0);
               const totalMeta = ativos.reduce((s, t) => s + t.m.mMin, 0);
               const equipaPct = totalMeta > 0 ? Math.round((totalEf / totalMeta) * 100) : 0;
-              
-              // Top contributors (acima da meta individual)
-              const tops = ativos
-                .filter(t => t.m.pM >= 100)
-                .sort((a, b) => b.m.pM - a.m.pM);
-              
-              // Quantos estão abaixo (sem dar nomes)
-              const abaixo = ativos.filter(t => t.m.pM < 80).length;
               const emBaixaCount = equipaData.filter(t => t.emBaixa).length;
-              
               const equipaBem = equipaPct >= 95;
-              const nomesProprio = terap.Nome.split(" ")[0];
-              const euSouTop = tops.some(t => t.ID === terap.ID);
               
+              // Frases rotativas sobre o propósito (baseadas no dia do mês)
+              const dia = new Date().getDate();
+              const frases = [
+                { msg: "Existimos para garantir que nenhuma criança fica sem apoio por causa da condição socioeconómica da sua família. Essa é a nossa missão.", cta: "Cumpre o teu horário, prepara cada sessão, dá o teu melhor. Estas famílias contam contigo." },
+                { msg: "Trabalhar no CAIDI é uma responsabilidade: muitas das nossas famílias não têm alternativa. Somos a única resposta que conhecem.", cta: "Se tens vagas por preencher, sinaliza. Há quem esteja à espera." },
+                { msg: "Não escolhemos as crianças pelo que as famílias podem pagar. Escolhemos todas — porque todas merecem o melhor.", cta: "Dá a cada sessão a mesma qualidade, a cada criança a mesma atenção. É isso que nos define." },
+                { msg: "Somos referência em avaliação, relatórios e intervenção. A qualidade do nosso trabalho é o que nos distingue — e não baixamos a fasquia.", cta: "Mantém os teus relatórios em dia, prepara as sessões com rigor. A excelência é um hábito, não um acaso." },
+                { msg: "Formamos, avaliamos, intervimos. Cada relatório que escrevemos abre portas. Cada sessão que fazemos muda o rumo de uma família.", cta: "Não deixes sessões por fazer nem relatórios por escrever. Cada atraso é uma porta que demora a abrir." },
+                { msg: "Ser bom não basta — queremos ser os melhores. Porque as crianças que nos chegam merecem o mesmo que qualquer outra.", cta: "Investe na tua formação, partilha o que aprendes, exige de ti o que exigirias para o teu filho." },
+                { msg: "Cada sessão é uma criança que recebe o acompanhamento que precisa, quando precisa, independentemente de onde vem.", cta: "Uma sessão que não acontece é uma criança que espera mais uma semana. Sê pontual, sê presente." },
+                { msg: "Há crianças em lista de espera. Cada vaga que preenchemos é uma família que deixa de esperar por ajuda.", cta: "Se um utente falta sistematicamente, sinaliza. Essa vaga pode mudar a vida de outra criança." },
+                { msg: "O nosso trabalho vai além da terapia. Damos dignidade, damos oportunidade, damos futuro.", cta: "Trata cada família com o respeito que merece. O profissionalismo começa na forma como acolhemos." },
+                { msg: "Somos uma equipa social. Quem nos procura muitas vezes não tem mais nenhum sítio onde ir. Essa confiança obriga-nos a dar o melhor todos os dias.", cta: "Se algo não está a correr bem, fala. Um problema partilhado resolve-se; um problema escondido cresce." },
+                { msg: "Trabalhar aqui é um privilégio e uma responsabilidade. Cada um de nós faz parte da resposta que estas famílias precisam.", cta: "Assume o teu papel. A equipa precisa que cada um faça a sua parte com compromisso e ética." },
+                { msg: "Quando damos o nosso melhor, não é por números — é porque há crianças que dependem de nós para ter as mesmas oportunidades que as outras.", cta: "Olha para a tua agenda. Estás a dar tudo o que podes? Se não, hoje é um bom dia para começar." },
+              ];
+              const frase = frases[dia % frases.length];
+
               return (
-                <Card delay={0} style={{ marginBottom: 8, background: "linear-gradient(135deg, " + (equipaBem ? "#E8F8F5" : "#FFF9E6") + ", " + C.white + ")", border: "1px solid " + (equipaBem ? "#b2f5ea" : "#FDEBD0") }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>🤝 Equipa CAIDI · {q ? q.label : ""}</div>
+                <Card delay={0} style={{ marginBottom: 8, background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft, position: "relative", overflow: "hidden" }}>
+                  <div style={{ position: "absolute", top: -15, right: -15, width: 60, height: 60, borderRadius: "50%", background: C.teal + "08" }} />
+                  
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.tealDark, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🤝 Equipa CAIDI</div>
+                  
+                  {/* Frase de propósito + chamada à ação */}
+                  <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7, fontStyle: "italic", marginBottom: 6 }}>
+                    “{frase.msg}”
+                  </div>
+                  <div style={{ fontSize: 12, color: C.tealDark, fontWeight: 700, lineHeight: 1.6, marginBottom: 10 }}>
+                    → {frase.cta}
+                  </div>
+                  
+                  {/* Número de apoios */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "rgba(255,255,255,0.7)", borderRadius: 12, marginBottom: 8 }}>
+                    <div style={{ fontSize: 28, fontWeight: 900, color: C.teal, lineHeight: 1 }}>{totalEf}</div>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: C.dark }}>sessões realizadas este quadrimestre</div>
+                      <div style={{ fontSize: 11, color: C.darkSoft }}>São {totalEf} vezes em que fizemos diferença.</div>
+                    </div>
+                  </div>
                   
                   {/* Barra da equipa */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ height: 8, background: C.grayLight, borderRadius: 4, overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: Math.min(equipaPct, 100) + "%", background: equipaBem ? C.green : C.yellow, borderRadius: 4, transition: "width 1s ease" }} />
-                      </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, height: 6, background: C.grayLight, borderRadius: 3, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: Math.min(equipaPct, 100) + "%", background: equipaBem ? C.green : C.teal, borderRadius: 3, transition: "width 1s ease" }} />
                     </div>
-                    <span style={{ fontSize: 16, fontWeight: 900, color: equipaBem ? C.green : "#d4a017" }}>{equipaPct}%</span>
+                    <span style={{ fontSize: 13, fontWeight: 900, color: equipaBem ? C.green : C.teal }}>{equipaPct}%</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 4 }}>
+                    {equipaBem
+                      ? "✅ A equipa está a dar resposta — juntos, estamos a fazer o que é preciso."
+                      : "Estamos a " + equipaPct + "% da nossa capacidade. Há famílias que dependem de nós — cada sessão conta."}
                   </div>
                   
-                  {/* Mensagem principal */}
-                  <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7 }}>
-                    {equipaBem ? (
-                      <>Estamos no bom caminho! 💪 A equipa como um todo está a <strong>{equipaPct}% da meta</strong>.</>
-                    ) : (
-                      <>Estamos a <strong>{equipaPct}% da meta</strong> enquanto equipa. Ainda não chegamos lá, mas estamos todos no mesmo caminho.</>
-                    )}
-                  </div>
-                  
-                  {/* Reconhecimento */}
-                  {tops.length > 0 && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: C.darkSoft, lineHeight: 1.7 }}>
-                      {tops.length === 1 ? (
-                        <>Neste caminho, <strong style={{ color: C.tealDark }}>{tops[0].Nome.split(" ")[0]}</strong> tem dado um contributo especial ao compensar quem ainda não conseguiu chegar lá. {euSouTop ? "És tu — obrigado pelo teu esforço! 💚" : ""}</>
-                      ) : tops.length <= 3 ? (
-                        <>{tops.map((t, i) => (<span key={t.ID}><strong style={{ color: C.tealDark }}>{t.Nome.split(" ")[0]}</strong>{i < tops.length - 2 ? ", " : i < tops.length - 1 ? " e " : ""}</span>))} têm dado um contributo especial, compensando quem ainda não conseguiu chegar lá. {euSouTop ? "Tu és um deles — obrigado! 💚" : "O esforço deles faz diferença para todos."}</>
-                      ) : (
-                        <>{tops.slice(0, 3).map((t, i) => (<span key={t.ID}><strong style={{ color: C.tealDark }}>{t.Nome.split(" ")[0]}</strong>{i < 2 ? (i < 1 ? ", " : " e ") : ""}</span>))} (e mais {tops.length - 3}) têm levado a equipa às costas, compensando quem ainda está atrás. {euSouTop ? "Tu és um deles — obrigado! 💚" : "O esforço deles beneficia toda a equipa."}</>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Contexto de baixas */}
+                  {/* Baixas */}
                   {emBaixaCount > 0 && (
                     <div style={{ marginTop: 6, fontSize: 11, color: C.purple, fontWeight: 600 }}>
-                      🏥 {emBaixaCount} colega{emBaixaCount > 1 ? "s" : ""} de baixa — a equipa cobre.
-                    </div>
-                  )}
-                  
-                  {/* Call to action suave */}
-                  {!equipaBem && !euSouTop && (
-                    <div style={{ marginTop: 8, fontSize: 12, color: C.tealDark, fontWeight: 700 }}>
-                      💡 Cada apoio que fazes contribui para chegarmos lá juntos.
+                      🏥 {emBaixaCount} colega{emBaixaCount > 1 ? "s" : ""} de baixa — a equipa cobre, como sempre.
                     </div>
                   )}
                 </Card>
