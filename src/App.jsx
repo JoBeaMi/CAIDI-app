@@ -553,7 +553,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
     const progQuad = dQuadTotal > 0 ? dQuadHoje / dQuadTotal : 1;
     const progLetivo = dLetivoTotal > 0 ? dLetivoHoje / dLetivoTotal : 1;
     const mH = Math.round(mMin * progQuad);
-    const ef = ap.filter(a => a.Tipo === "Efetivado" && a.Data >= qx.qInicio && a.Data <= qx.qFim).length;
+    const resumoT = data.resumoApoios && data.resumoApoios[String(terap.ID)] || { ef: 0, efPorQuad: {} };
+    const ef = resumoT.efPorQuad && resumoT.efPorQuad[qx.label] ? resumoT.efPorQuad[qx.label] : (qx === q ? ap : 0);
     const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
     const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
     const diff = ef - mH;
@@ -1509,8 +1510,11 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
           // Calc metrics for a specific quad
           const calcQ = (t, qx) => {
             const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-            const ap2 = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
-            if (!qx) return calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios);
+            const resumo = data.resumoApoios && data.resumoApoios[String(t.ID)] || { ef: 0, efPorQuad: {} };
+            const efAtual = resumo.ef || 0;
+            if (!qx) return calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios);
+            // Para quadrimestre específico, usar efPorQuad
+            const ef = resumo.efPorQuad && resumo.efPorQuad[qx.label] ? resumo.efPorQuad[qx.label] : (qx.label === (allQuads[currentIdx] || {}).label ? efAtual : 0);
             const hLD = Number(t["Horas Letivas"]) / 5;
             const hSem = Number(t["Horas Semanais"]) / 5;
             const dLT = contarDiasUteis(qx.letivoInicio, qx.letivoFim);
@@ -1524,14 +1528,13 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             const mE3 = Math.round(hSem * (dLT - dB) * 1.05);
             const progQ = dQT > 0 ? dQH / dQT : 1;
             const mH = Math.round(mMin * progQ);
-            const ef = ap2.filter(a => a.Tipo === "Efetivado" && a.Data >= qx.qInicio && a.Data <= qx.qFim).length;
             const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
             const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
             const euros5 = ef > mE2 ? Math.min(ef, mE3) - mE2 : 0;
             const euros10 = ef > mE3 ? ef - mE3 : 0;
             const eurosTotal = (euros5 * 5) + (euros10 * 10);
             const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
-            const mBase = calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios);
+            const mBase = calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios);
             return { ...mBase, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, sc, eurosTotal, dB, quad: qx, passado: hojeStr > qx.qFim };
           };
 
