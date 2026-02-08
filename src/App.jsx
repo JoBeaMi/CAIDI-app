@@ -597,13 +597,13 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
           <div>
             {/* Mensagem da equipa */}
             {!isADM && (() => {
-              const equipaTeraps = data.terapeutas.filter(t => t["Área"] !== "ADM");
+              const equipaTeraps = data.terapeutas.filter(t => t["\u00c1rea"] !== "ADM");
+              const hojeStr = new Date().toISOString().slice(0, 10);
               const equipaData = equipaTeraps.map(t => {
                 const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
                 const tAp = data.apoios.filter(a => a.ID_Terapeuta === t.ID);
                 const tM = calc(t, tAp, tAus, data.periodos, data.fecho, data.horarios);
-                const hojeStr = new Date().toISOString().slice(0, 10);
-                const emBaixa = tAus.some(a => a.Motivo === "Baixa Médica" && a.Estado === "Aprovado" && hojeStr >= a["Data Início"] && hojeStr <= a["Data Fim"]);
+                const emBaixa = tAus.some(a => a.Motivo === "Baixa M\u00e9dica" && a.Estado === "Aprovado" && hojeStr >= a["Data In\u00edcio"] && hojeStr <= a["Data Fim"]);
                 return { ...t, m: tM, emBaixa };
               });
               
@@ -613,22 +613,49 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const equipaPct = totalMeta > 0 ? Math.round((totalEf / totalMeta) * 100) : 0;
               const emBaixaCount = equipaData.filter(t => t.emBaixa).length;
               const equipaBem = equipaPct >= 95;
+              const gap = Math.max(totalMeta - totalEf, 0);
               
-              // Frases rotativas sobre o propósito (baseadas no dia do mês)
+              // Capacidade = total horas diretas da equipa at\u00e9 hoje (1 atividade/hora)
+              const totalHorasDiretas = ativos.reduce((s, t) => {
+                const hLet = Number(t["Horas Letivas"]) || 0;
+                const dLet = Math.max((t.m.dLetivoHoje || t.m.dQuadHoje || 0) - t.m.dB, 0);
+                return s + Math.round(dLet * (hLet / 5));
+              }, 0);
+              
+              // Tend\u00eancia semanal: apoios desta semana vs semana passada
+              const hoje = new Date();
+              const diaSemana = hoje.getDay() || 7; // 1=seg ... 7=dom
+              const inicioSemana = new Date(hoje); inicioSemana.setDate(hoje.getDate() - diaSemana + 1);
+              const fimSemPassada = new Date(inicioSemana); fimSemPassada.setDate(fimSemPassada.getDate() - 1);
+              const inicioSemPassada = new Date(fimSemPassada); inicioSemPassada.setDate(inicioSemPassada.getDate() - 6);
+              const semAtualStr = inicioSemana.toISOString().slice(0, 10);
+              const semPassadaIni = inicioSemPassada.toISOString().slice(0, 10);
+              const semPassadaFim = fimSemPassada.toISOString().slice(0, 10);
+              
+              const apoiosSemAtual = data.apoios.filter(a => a.Tipo === "Efetivado" && a.Data >= semAtualStr && a.Data <= hojeStr && equipaTeraps.some(t => t.ID === a.ID_Terapeuta)).length;
+              const apoiosSemPassada = data.apoios.filter(a => a.Tipo === "Efetivado" && a.Data >= semPassadaIni && a.Data <= semPassadaFim && equipaTeraps.some(t => t.ID === a.ID_Terapeuta)).length;
+              const tendencia = apoiosSemPassada > 0 ? apoiosSemAtual - apoiosSemPassada : 0;
+              const temTendencia = apoiosSemPassada > 0;
+              
+              // Crian\u00e7as afetadas pelo gap (~1 crian\u00e7a = ~4 sess\u00f5es/m\u00eas)
+              // Se faltam 133 sess\u00f5es, s\u00e3o ~33 crian\u00e7as sem acompanhamento semanal
+              const criancasGap = gap > 0 ? Math.round(gap / 4) : 0;
+              
+              // Frases rotativas
               const dia = new Date().getDate();
               const frases = [
-                { msg: "Existimos para garantir que nenhuma criança fica sem apoio por causa da condição socioeconómica da sua família. Essa é a nossa missão.", cta: "Cumpre o teu horário, prepara cada sessão, dá o teu melhor. Estas famílias contam contigo." },
-                { msg: "Trabalhar no CAIDI é uma responsabilidade: muitas das nossas famílias não têm alternativa. Somos a única resposta que conhecem.", cta: "Se tens vagas por preencher, sinaliza. Há quem esteja à espera." },
-                { msg: "Não escolhemos as crianças pelo que as famílias podem pagar. Escolhemos todas — porque todas merecem o melhor.", cta: "Dá a cada sessão a mesma qualidade, a cada criança a mesma atenção. É isso que nos define." },
-                { msg: "Somos referência em avaliação, relatórios e intervenção. A qualidade do nosso trabalho é o que nos distingue — e não baixamos a fasquia.", cta: "Mantém os teus relatórios em dia, prepara as sessões com rigor. A excelência é um hábito, não um acaso." },
-                { msg: "Formamos, avaliamos, intervimos. Cada relatório que escrevemos abre portas. Cada sessão que fazemos muda o rumo de uma família.", cta: "Não deixes sessões por fazer nem relatórios por escrever. Cada atraso é uma porta que demora a abrir." },
-                { msg: "Ser bom não basta — queremos ser os melhores. Porque as crianças que nos chegam merecem o mesmo que qualquer outra.", cta: "Investe na tua formação, partilha o que aprendes, exige de ti o que exigirias para o teu filho." },
-                { msg: "Cada sessão é uma criança que recebe o acompanhamento que precisa, quando precisa, independentemente de onde vem.", cta: "Uma sessão que não acontece é uma criança que espera mais uma semana. Sê pontual, sê presente." },
-                { msg: "Há crianças em lista de espera. Cada vaga que preenchemos é uma família que deixa de esperar por ajuda.", cta: "Se um utente falta sistematicamente, sinaliza. Essa vaga pode mudar a vida de outra criança." },
-                { msg: "O nosso trabalho vai além da terapia. Damos dignidade, damos oportunidade, damos futuro.", cta: "Trata cada família com o respeito que merece. O profissionalismo começa na forma como acolhemos." },
-                { msg: "Somos uma equipa social. Quem nos procura muitas vezes não tem mais nenhum sítio onde ir. Essa confiança obriga-nos a dar o melhor todos os dias.", cta: "Se algo não está a correr bem, fala. Um problema partilhado resolve-se; um problema escondido cresce." },
-                { msg: "Trabalhar aqui é um privilégio e uma responsabilidade. Cada um de nós faz parte da resposta que estas famílias precisam.", cta: "Assume o teu papel. A equipa precisa que cada um faça a sua parte com compromisso e ética." },
-                { msg: "Quando damos o nosso melhor, não é por números — é porque há crianças que dependem de nós para ter as mesmas oportunidades que as outras.", cta: "Olha para a tua agenda. Estás a dar tudo o que podes? Se não, hoje é um bom dia para começar." },
+                { msg: "Existimos para garantir que nenhuma crian\u00e7a fica sem apoio por causa da condi\u00e7\u00e3o socioecon\u00f3mica da sua fam\u00edlia. Essa \u00e9 a nossa miss\u00e3o.", cta: "Cumpre o teu hor\u00e1rio, prepara cada sess\u00e3o, d\u00e1 o teu melhor. Estas fam\u00edlias contam contigo." },
+                { msg: "Trabalhar no CAIDI \u00e9 uma responsabilidade: muitas das nossas fam\u00edlias n\u00e3o t\u00eam alternativa. Somos a \u00fanica resposta que conhecem.", cta: "Se tens vagas por preencher, sinaliza. H\u00e1 quem esteja \u00e0 espera." },
+                { msg: "N\u00e3o escolhemos as crian\u00e7as pelo que as fam\u00edlias podem pagar. Escolhemos todas \u2014 porque todas merecem o melhor.", cta: "D\u00e1 a cada sess\u00e3o a mesma qualidade, a cada crian\u00e7a a mesma aten\u00e7\u00e3o. \u00c9 isso que nos define." },
+                { msg: "Somos refer\u00eancia em avalia\u00e7\u00e3o, relat\u00f3rios e interven\u00e7\u00e3o. A qualidade do nosso trabalho \u00e9 o que nos distingue \u2014 e n\u00e3o baixamos a fasquia.", cta: "Mant\u00e9m os teus relat\u00f3rios em dia, prepara as sess\u00f5es com rigor. A excel\u00eancia \u00e9 um h\u00e1bito, n\u00e3o um acaso." },
+                { msg: "Formamos, avaliamos, intervimos. Cada relat\u00f3rio que escrevemos abre portas. Cada sess\u00e3o que fazemos muda o rumo de uma fam\u00edlia.", cta: "N\u00e3o deixes sess\u00f5es por fazer nem relat\u00f3rios por escrever. Cada atraso \u00e9 uma porta que demora a abrir." },
+                { msg: "Ser bom n\u00e3o basta \u2014 queremos ser os melhores. Porque as crian\u00e7as que nos chegam merecem o mesmo que qualquer outra.", cta: "Investe na tua forma\u00e7\u00e3o, partilha o que aprendes, exige de ti o que exigirias para o teu filho." },
+                { msg: "Cada sess\u00e3o \u00e9 uma crian\u00e7a que recebe o acompanhamento que precisa, quando precisa, independentemente de onde vem.", cta: "Uma sess\u00e3o que n\u00e3o acontece \u00e9 uma crian\u00e7a que espera mais uma semana. S\u00ea pontual, s\u00ea presente." },
+                { msg: "H\u00e1 crian\u00e7as em lista de espera. Cada vaga que preenchemos \u00e9 uma fam\u00edlia que deixa de esperar por ajuda.", cta: "Se um utente falta sistematicamente, sinaliza. Essa vaga pode mudar a vida de outra crian\u00e7a." },
+                { msg: "O nosso trabalho vai al\u00e9m da terapia. Damos dignidade, damos oportunidade, damos futuro.", cta: "Trata cada fam\u00edlia com o respeito que merece. O profissionalismo come\u00e7a na forma como acolhemos." },
+                { msg: "Somos uma equipa social. Quem nos procura muitas vezes n\u00e3o tem mais nenhum s\u00edtio onde ir. Essa confian\u00e7a obriga-nos a dar o melhor todos os dias.", cta: "Se algo n\u00e3o est\u00e1 a correr bem, fala. Um problema partilhado resolve-se; um problema escondido cresce." },
+                { msg: "Trabalhar aqui \u00e9 um privil\u00e9gio e uma responsabilidade. Cada um de n\u00f3s faz parte da resposta que estas fam\u00edlias precisam.", cta: "Assume o teu papel. A equipa precisa que cada um fa\u00e7a a sua parte com compromisso e \u00e9tica." },
+                { msg: "Quando damos o nosso melhor, n\u00e3o \u00e9 por n\u00fameros \u2014 \u00e9 porque h\u00e1 crian\u00e7as que dependem de n\u00f3s para ter as mesmas oportunidades que as outras.", cta: "Olha para a tua agenda. Est\u00e1s a dar tudo o que podes? Se n\u00e3o, hoje \u00e9 um bom dia para come\u00e7ar." },
               ];
               const frase = frases[dia % frases.length];
 
@@ -636,47 +663,76 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 <Card delay={0} style={{ marginBottom: 8, background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft, position: "relative", overflow: "hidden" }}>
                   <div style={{ position: "absolute", top: -15, right: -15, width: 60, height: 60, borderRadius: "50%", background: C.teal + "08" }} />
                   
-                  <div style={{ fontSize: 10, fontWeight: 800, color: C.tealDark, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🤝 Equipa CAIDI</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.tealDark, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>{"\U0001f91d"} Equipa CAIDI</div>
                   
-                  {/* Frase de propósito + chamada à ação */}
-                  <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7, fontStyle: "italic", marginBottom: 6 }}>
-                    “{frase.msg}”
+                  {/* Frase + CTA */}
+                  <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7, fontStyle: "italic", marginBottom: 4 }}>
+                    {"\u201c"}{frase.msg}{"\u201d"}
                   </div>
                   <div style={{ fontSize: 12, color: C.tealDark, fontWeight: 700, lineHeight: 1.6, marginBottom: 10 }}>
-                    → {frase.cta}
+                    {"\u2192"} {frase.cta}
                   </div>
                   
-                  {/* Número de apoios */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", background: "rgba(255,255,255,0.7)", borderRadius: 12, marginBottom: 8 }}>
-                    <div style={{ fontSize: 28, fontWeight: 900, color: C.teal, lineHeight: 1 }}>{totalEf}</div>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: C.dark }}>sessões realizadas este quadrimestre</div>
-                      <div style={{ fontSize: 11, color: C.darkSoft }}>São {totalEf} vezes em que fizemos diferença.</div>
+                  {/* Capacidade vs Realidade */}
+                  <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 14, padding: "12px", marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.5 }}>Capacidade da equipa</div>
+                        <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{totalHorasDiretas}h diretas {"\u00d7"} 1 atividade/hora</div>
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: C.grayLight, lineHeight: 1 }}>{totalMeta}</div>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.5 }}>Realizadas</div>
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: C.teal, lineHeight: 1 }}>{totalEf}</div>
+                    </div>
+                    {/* Barra */}
+                    <div style={{ height: 10, background: C.grayLight, borderRadius: 5, overflow: "hidden", position: "relative" }}>
+                      <div style={{ height: "100%", width: Math.min(equipaPct, 100) + "%", background: equipaBem ? C.green : "linear-gradient(90deg, " + C.teal + ", " + C.tealDark + ")", borderRadius: 5, transition: "width 1s ease" }} />
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 900, color: equipaBem ? C.green : C.teal }}>{equipaPct}%</span>
+                      {gap > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: C.red }}>Faltam {gap} sess{"\u00f5"}es</span>}
                     </div>
                   </div>
                   
-                  {/* Barra da equipa */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <div style={{ flex: 1, height: 6, background: C.grayLight, borderRadius: 3, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: Math.min(equipaPct, 100) + "%", background: equipaBem ? C.green : C.teal, borderRadius: 3, transition: "width 1s ease" }} />
+                  {/* Gap traduzido em impacto */}
+                  {gap > 0 && criancasGap > 0 && (
+                    <div style={{ padding: "8px 12px", background: C.redBg, borderRadius: 10, marginBottom: 8, fontSize: 12, color: C.red, fontWeight: 600, lineHeight: 1.6 }}>
+                      {gap} sess{"\u00f5"}es por realizar = ~<strong>{criancasGap} crian{"\u00e7"}as</strong> que podiam estar a ser acompanhadas e n{"\u00e3"}o est{"\u00e3"}o.
                     </div>
-                    <span style={{ fontSize: 13, fontWeight: 900, color: equipaBem ? C.green : C.teal }}>{equipaPct}%</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 4 }}>
-                    {equipaBem
-                      ? "✅ A equipa está a dar resposta — juntos, estamos a fazer o que é preciso."
-                      : "Estamos a " + equipaPct + "% da nossa capacidade. Há famílias que dependem de nós — cada sessão conta."}
-                  </div>
+                  )}
+                  {equipaBem && (
+                    <div style={{ padding: "8px 12px", background: C.greenBg, borderRadius: 10, marginBottom: 8, fontSize: 12, color: C.green, fontWeight: 600 }}>
+                      {"\u2705"} A equipa est{"\u00e1"} a dar resposta. Juntos, estamos a fazer o que {"\u00e9"} preciso.
+                    </div>
+                  )}
+                  
+                  {/* Tend\u00eancia semanal */}
+                  {temTendencia && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 8 }}>
+                      <span style={{ fontSize: 16 }}>{tendencia > 0 ? "\U0001f4c8" : tendencia < 0 ? "\U0001f4c9" : "\u27a1\ufe0f"}</span>
+                      <div style={{ fontSize: 11, color: C.darkSoft }}>
+                        <span style={{ fontWeight: 800, color: tendencia > 0 ? C.green : tendencia < 0 ? C.red : C.dark }}>
+                          {tendencia > 0 ? "+" : ""}{tendencia} esta semana
+                        </span>
+                        {" "}vs semana passada ({apoiosSemPassada} {"\u2192"} {apoiosSemAtual})
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Baixas */}
                   {emBaixaCount > 0 && (
                     <div style={{ marginTop: 6, fontSize: 11, color: C.purple, fontWeight: 600 }}>
-                      🏥 {emBaixaCount} colega{emBaixaCount > 1 ? "s" : ""} de baixa — a equipa cobre, como sempre.
+                      {"\U0001f3e5"} {emBaixaCount} colega{emBaixaCount > 1 ? "s" : ""} de baixa {"\u2014"} a equipa cobre, como sempre.
                     </div>
                   )}
                 </Card>
               );
             })()}
+
 
             {!isADM && (
             <Card delay={0}>
