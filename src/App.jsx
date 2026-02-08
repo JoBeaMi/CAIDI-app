@@ -1036,7 +1036,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         const badges = [];
                         if (acimaE3) badges.push({ icon: "💎", label: "Top Performer", desc: "Acima do escalão máximo!" });
                         else if (acimaE2) badges.push({ icon: "💰", label: "Escalão 2", desc: "5€ por apoio extra" });
-                        if (acimaMeta && mq.ef >= mq.mBonus) badges.push({ icon: "🎁", label: "Dia bónus garantido", desc: "+1 dia de férias" });
+                        if (acimaObjetivo && mq.ef >= mq.mBonus) badges.push({ icon: "🎁", label: "Dia bónus garantido", desc: "+1 dia de férias" });
                         if (aph >= 1.2) badges.push({ icon: "⚡", label: "Alta eficiência", desc: aph + " apoios/hora direta" });
 
                         // 🔴 CRÍTICO < 0.5
