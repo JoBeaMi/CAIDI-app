@@ -598,6 +598,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
           <div>
             {/* Mensagem da equipa */}
             {!isADM && (() => {
+              try {
               const equipaTeraps = data.terapeutas.filter(t => t["Área"] !== "ADM");
               const hojeStr = new Date().toISOString().slice(0, 10);
               const hoje = new Date();
@@ -642,23 +643,24 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const tendencia = temPassada ? apoiosEstaSem - Math.round(apoiosSemPassada * (diasUteisSem / 5)) : 0;
               
               // --- PERÍODO INTEIRO ---
-              // Capacidade total: soma de (hLetivas/5 * diasLetivosAtéHoje) de cada ativo, descontando baixas
               const p = periodoAtual(data.periodos);
-              const iP = new Date(p["Início"]), fP = new Date(p.Fim);
-              const diasLetivosPeriodo = contarDiasUteis(iP, hoje);
-              const diasRestantes = contarDiasUteis(hoje, fP) - 1; // excluir hoje (já contado)
+              const pInicio = p && p["Início"] ? p["Início"] : null;
+              const pFim = p && p.Fim ? p.Fim : null;
+              const diasLetivosPeriodo = pInicio ? contarDiasUteis(new Date(pInicio), hoje) : 0;
+              const diasRestantes = pFim ? Math.max(contarDiasUteis(hoje, new Date(pFim)) - 1, 0) : 0;
               
               let capPeriodo = 0, capRestante = 0, apoiosPeriodo = 0;
-              ativos.forEach(t => {
-                const hPorDia = t.hLetivas / 5;
-                // Descontar baixa do terapeuta
-                const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID && a.Motivo === "Baixa Médica" && a.Estado === "Aprovado");
-                const diasBaixa = tAus.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-                capPeriodo += Math.round(hPorDia * Math.max(diasLetivosPeriodo - diasBaixa, 0));
-                capRestante += Math.round(hPorDia * diasRestantes);
-                const r = data.resumoApoios && data.resumoApoios[String(t.ID)];
-                if (r) apoiosPeriodo += r.ef || 0;
-              });
+              if (diasLetivosPeriodo > 0) {
+                ativos.forEach(t => {
+                  const hPorDia = t.hLetivas / 5;
+                  const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID && a.Motivo === "Baixa Médica" && a.Estado === "Aprovado");
+                  const diasBaixa = tAus.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+                  capPeriodo += Math.round(hPorDia * Math.max(diasLetivosPeriodo - diasBaixa, 0));
+                  capRestante += Math.round(hPorDia * diasRestantes);
+                  const r = data.resumoApoios && data.resumoApoios[String(t.ID)];
+                  if (r) apoiosPeriodo += r.ef || 0;
+                });
+              }
               const pctPeriodo = capPeriodo > 0 ? Math.round((apoiosPeriodo / capPeriodo) * 100) : 0;
 
               // Frases rotativas
@@ -750,6 +752,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                   )}
                 </Card>
               );
+              } catch(err) { return <div style={{background:"#fcc",padding:16,borderRadius:12,margin:8,fontSize:12,color:"red",wordBreak:"break-all"}}>Erro card equipa: {String(err)}</div>; }
             })()}
 
 
@@ -764,7 +767,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
                     <div><div style={{ fontSize: 24, fontWeight: 900, color: C.dark, lineHeight: 1 }}>{m.ef}</div><div style={{ fontSize: 11, color: C.gray }}>realizados</div></div>
-                    <div style={{ textAlign: "right" }}><div style={{ fontSize: 24, fontWeight: 900, color: C.grayLight, lineHeight: 1 }}>{m.mMin}</div><div style={{ fontSize: 11, color: C.gray }}>meta</div></div>
+                    <div style={{ textAlign: "right" }}><div style={{ fontSize: 24, fontWeight: 900, color: C.grayLight, lineHeight: 1 }}>{m.mMin}</div><div style={{ fontSize: 11, color: C.gray }}>objetivo</div></div>
                   </div>
                   <div style={{ height: 6, background: C.grayLight, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", borderRadius: 3, width: Math.min(m.pM, 100) + "%", background: "linear-gradient(90deg, " + m.sc + ", " + m.sc + "cc)", transition: "width 1.2s ease" }} /></div>
                   <div style={{ fontSize: 11, color: m.sc, fontWeight: 700, marginTop: 5 }}>{m.pH >= 95 ? "🟢 Excelente!" : m.pH >= 80 ? "🟡 Atenção" : "🔴 Abaixo"} · {m.diff >= 0 ? "+" : ""}{m.diff} vs ritmo</div>
