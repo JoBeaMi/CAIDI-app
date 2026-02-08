@@ -960,6 +960,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 const horasLetivasTrabalhadas = Math.round(diasLetivosTrab * (hLetivas / 5));
                 const apoiosPorHora = horasLetivasTrabalhadas > 0 ? Math.round((mq.ef / horasLetivasTrabalhadas) * 100) / 100 : 0;
                 const menosDeUmPorHora = apoiosPorHora < 1;
+                const aphColor = apoiosPorHora >= 1.0 ? C.green : apoiosPorHora >= 0.90 ? C.tealDark : apoiosPorHora >= 0.75 ? "#d4a017" : apoiosPorHora >= 0.50 ? C.orange : C.red;
+                const aphBg = apoiosPorHora >= 1.0 ? C.greenBg : apoiosPorHora >= 0.90 ? C.tealLight : apoiosPorHora >= 0.75 ? C.yellowBg : apoiosPorHora >= 0.50 ? C.orangeBg : C.redBg;
                 // Quanto tempo direto fica sem apoios registados
                 const horasDiretasPorSemana = apoiosSemana; // ~1 apoio = ~1 hora
                 const tempoLivre = Math.max(hLetivas - horasDiretasPorSemana, 0);
