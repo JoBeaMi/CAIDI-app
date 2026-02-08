@@ -642,9 +642,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const tendencia = temPassada ? apoiosEstaSem - Math.round(apoiosSemPassada * (diasUteisSem / 5)) : 0;
               
               // --- PERÍODO INTEIRO ---
-              const p = periodoAtual(data.periodos);
-              const pInicio = p && p["Início"] ? p["Início"] : null;
-              const pFim = p && p.Fim ? p.Fim : null;
+              const pInicio = q && q.letivoInicio ? q.letivoInicio : null;
+              const pFim = q && q.letivoFim ? q.letivoFim : null;
               const diasLetivosPeriodo = pInicio ? contarDiasUteis(new Date(pInicio), hoje) : 0;
               const diasRestantes = pFim ? Math.max(contarDiasUteis(hoje, new Date(pFim)) - 1, 0) : 0;
               
