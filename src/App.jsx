@@ -785,80 +785,128 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
 
             {/* Análise semanal de produtividade */}
             <Card delay={0.17} style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 Realidade semanal</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 O teu ritmo real</div>
               {(() => {
                 const hLetivas = Number(terap["Horas Letivas"]);
                 const hSemanais = Number(terap["Horas Semanais"]);
                 const hIndiretas = hSemanais - hLetivas;
                 const semanasDecorridas = Math.max(Math.floor(mq.dQuadHoje / 5), 1);
+                const semanasLetivas = Math.max(Math.floor(mq.dLetivoTotal / 5), 1);
                 const apoiosSemana = Math.round((mq.ef / semanasDecorridas) * 10) / 10;
-                const metaSemanal = Math.round((mq.mMin / Math.max(Math.floor(mq.dLetivoTotal / 5), 1)) * 10) / 10;
-                const apoiosPorHoraReal = hLetivas > 0 ? Math.round((apoiosSemana / hLetivas) * 10) / 10 : 0;
-                const horasDiretasUsadas = mq.ef > 0 ? Math.round((mq.ef / semanasDecorridas) * 10) / 10 : 0;
-                const horasIndiretasReais = hSemanais - horasDiretasUsadas;
+                const metaSemanal = Math.round((mq.mMin / semanasLetivas) * 10) / 10;
+                // Apoios por hora = total apoios / total horas letivas trabalhadas
+                const horasLetivasTrabalhadas = semanasDecorridas * hLetivas;
+                const apoiosPorHora = horasLetivasTrabalhadas > 0 ? Math.round((mq.ef / horasLetivasTrabalhadas) * 100) / 100 : 0;
                 const abaixo = apoiosSemana < metaSemanal;
-                const menosDeUmPorHora = apoiosPorHoraReal < 1;
+                const menosDeUmPorHora = apoiosPorHora < 1;
+                // Quanto tempo indireto usam "a mais"
+                const horasDiretasReais = mq.ef; // ~1 apoio = ~1 hora (mínimo esperado)
+                const horasDiretasPorSemana = Math.round((horasDiretasReais / semanasDecorridas) * 10) / 10;
+                const tempoLivre = Math.max(hLetivas - horasDiretasPorSemana, 0);
 
                 return (
                   <div>
-                    {/* Resumo grande */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-                      <div style={{ padding: 12, background: abaixo ? C.redBg : C.greenBg, borderRadius: 14, textAlign: "center" }}>
-                        <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Média / semana</div>
-                        <div style={{ fontSize: 28, fontWeight: 900, color: abaixo ? C.red : C.green, lineHeight: 1.2 }}>{apoiosSemana}</div>
-                        <div style={{ fontSize: 10, color: C.darkSoft }}>apoios</div>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: abaixo ? C.red : C.green, marginTop: 2 }}>{abaixo ? "❌ abaixo" : "✅ ok"} de {metaSemanal}/sem</div>
+                    {/* Dois indicadores principais */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                      <div style={{ padding: 12, background: menosDeUmPorHora ? C.redBg : C.greenBg, borderRadius: 14, textAlign: "center" }}>
+                        <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Média semanal</div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: menosDeUmPorHora ? C.red : C.green, lineHeight: 1.2 }}>{apoiosSemana}</div>
+                        <div style={{ fontSize: 10, color: C.darkSoft }}>apoios / semana</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.gray, marginTop: 2 }}>objetivo: {metaSemanal}</div>
                       </div>
                       <div style={{ padding: 12, background: menosDeUmPorHora ? C.redBg : C.greenBg, borderRadius: 14, textAlign: "center" }}>
-                        <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Apoios / hora</div>
-                        <div style={{ fontSize: 28, fontWeight: 900, color: menosDeUmPorHora ? C.red : C.green, lineHeight: 1.2 }}>{apoiosPorHoraReal}</div>
-                        <div style={{ fontSize: 10, color: C.darkSoft }}>apoios por hora letiva</div>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: menosDeUmPorHora ? C.red : C.green, marginTop: 2 }}>{menosDeUmPorHora ? "❌ < 1/hora" : "✅ ≥ 1/hora"}</div>
+                        <div style={{ fontSize: 9, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>Rendimento</div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: menosDeUmPorHora ? C.red : C.green, lineHeight: 1.2 }}>{apoiosPorHora}</div>
+                        <div style={{ fontSize: 10, color: C.darkSoft }}>apoios / hora direta</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.gray, marginTop: 2 }}>mínimo: 1.0</div>
                       </div>
                     </div>
 
-                    {/* Distribuição horária */}
-                    <div style={{ fontSize: 11, fontWeight: 700, color: C.darkSoft, marginBottom: 6 }}>⏱ As tuas {hSemanais}h semanais:</div>
-                    <div style={{ height: 24, borderRadius: 8, overflow: "hidden", display: "flex", marginBottom: 6 }}>
-                      <div style={{ width: (hLetivas / hSemanais * 100) + "%", background: C.teal, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.white, fontWeight: 800 }}>{hLetivas}h diretas</div>
-                      <div style={{ width: (hIndiretas / hSemanais * 100) + "%", background: C.gray, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.white, fontWeight: 800 }}>{hIndiretas}h indiretas</div>
-                    </div>
-
-                    {/* O que deviam fazer vs o que fazem */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: C.grayBg, borderRadius: 8 }}>
-                        <span style={{ fontSize: 12, color: C.darkSoft }}>Horas diretas (letivas)</span>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: C.teal }}>{hLetivas}h / sem</span>
+                    {/* Explicação clara */}
+                    <div style={{ padding: "10px 12px", background: C.grayBg, borderRadius: 10, marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.6 }}>
+                        O teu contrato tem <strong>{hSemanais}h semanais</strong>: {hLetivas}h de trabalho direto (apoios, avaliações, reuniões) e {hIndiretas}h de trabalho indireto (relatórios, preparação).
                       </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: C.white, borderRadius: 8 }}>
-                        <span style={{ fontSize: 12, color: C.darkSoft }}>Apoios reais / semana</span>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: abaixo ? C.red : C.green }}>{apoiosSemana}</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: C.grayBg, borderRadius: 8 }}>
-                        <span style={{ fontSize: 12, color: C.darkSoft }}>Meta semanal</span>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: C.teal }}>{metaSemanal}</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: C.white, borderRadius: 8 }}>
-                        <span style={{ fontSize: 12, color: C.darkSoft }}>Semanas decorridas</span>
-                        <span style={{ fontSize: 13, fontWeight: 800, color: C.dark }}>{semanasDecorridas}</span>
+                      <div style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.6, marginTop: 4 }}>
+                        Em <strong>{hLetivas}h diretas</strong>, o esperado é pelo menos <strong>1 apoio por hora</strong> — ou seja, ~{metaSemanal} apoios por semana.
                       </div>
                     </div>
 
-                    {/* Mensagem final clara */}
-                    {abaixo && (
-                      <div style={{ marginTop: 10, padding: "10px 12px", background: C.yellowBg, borderRadius: 10, border: "1px solid #FDEBD0" }}>
-                        <div style={{ fontSize: 12, fontWeight: 800, color: C.red }}>⚠️ Em {semanasDecorridas} semanas fizeste {mq.ef} apoios.</div>
-                        <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
-                          Com <strong>{hLetivas}h diretas</strong> por semana, devias fazer pelo menos <strong>{metaSemanal} apoios/semana</strong> (≈ 1 por hora). Estás a fazer <strong>{apoiosSemana}</strong>.
+                    {/* Barra: como usas as tuas horas */}
+                    <div style={{ fontSize: 11, fontWeight: 700, color: C.darkSoft, marginBottom: 4 }}>As tuas {hSemanais}h por semana:</div>
+                    <div style={{ height: 28, borderRadius: 8, overflow: "hidden", display: "flex", marginBottom: 4 }}>
+                      <div style={{ width: Math.min(horasDiretasPorSemana / hSemanais * 100, hLetivas / hSemanais * 100) + "%", background: C.teal, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.white, fontWeight: 800 }}>{horasDiretasPorSemana}h usadas</div>
+                      {tempoLivre > 0 && <div style={{ width: (tempoLivre / hSemanais * 100) + "%", background: C.yellow, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.dark, fontWeight: 800 }}>{Math.round(tempoLivre * 10)/10}h ?</div>}
+                      <div style={{ flex: 1, background: C.gray, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.white, fontWeight: 800 }}>{hIndiretas}h indiretas</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, marginBottom: 10, fontSize: 10 }}>
+                      <span style={{ color: C.teal, fontWeight: 700 }}>■ Apoios realizados</span>
+                      {tempoLivre > 0 && <span style={{ color: "#d4a017", fontWeight: 700 }}>■ Diretas sem apoios</span>}
+                      <span style={{ color: C.gray, fontWeight: 700 }}>■ Indiretas</span>
+                    </div>
+
+                    {/* Números detalhados */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                      {[
+                        ["Total de apoios feitos", mq.ef, C.dark],
+                        ["Semanas decorridas", semanasDecorridas, C.dark],
+                        ["Horas diretas disponíveis", horasLetivasTrabalhadas + "h (" + semanasDecorridas + " × " + hLetivas + "h)", C.teal],
+                        ["Apoios por hora direta", apoiosPorHora, menosDeUmPorHora ? C.red : C.green],
+                      ].map(([label, val, color], i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 10px", background: i % 2 === 0 ? C.grayBg : C.white, borderRadius: 8 }}>
+                          <span style={{ fontSize: 12, color: C.darkSoft }}>{label}</span>
+                          <span style={{ fontSize: 13, fontWeight: 800, color }}>{val}</span>
                         </div>
-                        <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
-                          Isto significa que estás a usar mais tempo indireto do que o previsto ({hIndiretas}h).
+                      ))}
+                    </div>
+
+                    {/* Mensagem */}
+                    {menosDeUmPorHora ? (
+                      <div style={{ marginTop: 10 }}>
+                        {/* Situação */}
+                        <div style={{ padding: "14px", background: C.redBg, borderRadius: "14px 14px 0 0", border: "1px solid #f5c6c0", borderBottom: "none" }}>
+                          <div style={{ fontSize: 15, fontWeight: 900, color: C.red, marginBottom: 8 }}>{terap.Nome.split(" ")[0]}, estás abaixo de 1 apoio por hora.</div>
+                          <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7 }}>
+                            Nas últimas <strong>{semanasDecorridas} semanas</strong> tiveste <strong>{horasLetivasTrabalhadas}h de tempo direto disponível</strong> e realizaste <strong>{mq.ef} apoios</strong>. Isso dá uma média de <strong>{apoiosPorHora} apoios por cada hora direta</strong>.
+                          </div>
+                          <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7, marginTop: 6 }}>
+                            Sabemos que nem sempre depende só de ti — utentes faltam, horários ficam com buracos, há semanas mais difíceis. Mas <strong>1 apoio por hora não é uma meta ambiciosa: é o mínimo</strong> para que o CAIDI funcione de forma sustentável. É a base do que precisamos, não o teto.
+                          </div>
+                        </div>
+                        {/* Equipa */}
+                        <div style={{ padding: "14px", background: C.yellowBg, border: "1px solid #FDEBD0", borderBottom: "none" }}>
+                          <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 8 }}>🤝 O CAIDI somos todos, {terap.Nome.split(" ")[0]}</div>
+                          <div style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.7 }}>
+                            O teu trabalho sustenta o trabalho dos outros — e o dos outros sustenta o teu. Quando alguém fica abaixo, os recursos apertam, a organização ressente-se e são os utentes que acabam prejudicados. <strong>Quando um elemento da equipa falha, todos sentimos.</strong>
+                          </div>
+                          <div style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.7, marginTop: 6 }}>
+                            Por isso precisamos que sejas transparente connosco. Se tens dificuldades — utentes que faltam sempre, agenda com buracos, casos que não avançam, o que quer que seja — <strong>tens de nos dizer</strong>. Não guardes o problema para ti. Pedir ajuda não é fraqueza, é responsabilidade. Quanto mais cedo soubermos, mais depressa encontramos solução juntos.
+                          </div>
+                        </div>
+                        {/* Ações */}
+                        <div style={{ padding: "14px", background: C.white, borderRadius: "0 0 14px 14px", border: "1px solid " + C.grayLight }}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: C.dark, marginBottom: 8 }}>📋 O que podes fazer já:</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {[
+                              { icon: "📢", text: "Tens horários por preencher? Avisa a coordenação — há lista de espera e podemos encaminhar novos utentes para ti. Agenda vazia não beneficia ninguém." },
+                              { icon: "🔍", text: "Utentes que faltam sempre? Sinaliza esses casos. Uma vaga ocupada por quem não aparece é uma vaga que faz falta a quem precisa de verdade." },
+                              { icon: "💬", text: "Algo não está a correr bem e não sabes como resolver? Fala com a coordenação. Estamos cá para ajudar, mas só podemos fazê-lo se soubermos o que se passa." },
+                              { icon: "⏰", text: "Não deixes arrastar. Cada semana que passa abaixo do mínimo é mais difícil de recuperar — e a equipa inteira sente o peso." },
+                            ].map((a, i) => (
+                              <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                <span style={{ fontSize: 15, flexShrink: 0 }}>{a.icon}</span>
+                                <span style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.6 }}>{a.text}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    )}
-                    {!abaixo && (
-                      <div style={{ marginTop: 10, padding: "10px 12px", background: C.greenBg, borderRadius: 10, border: "1px solid #b2f5ea" }}>
-                        <div style={{ fontSize: 12, fontWeight: 800, color: C.green }}>✅ Bom ritmo! {apoiosSemana} apoios/semana em {hLetivas}h diretas.</div>
+                    ) : (
+                      <div style={{ marginTop: 10, padding: "12px 14px", background: C.greenBg, borderRadius: 12, border: "1px solid #b2f5ea" }}>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>{terap.Nome.split(" ")[0]}, estás a cumprir! 💪</div>
+                        <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.6 }}>
+                          <strong>{apoiosPorHora} apoios por hora</strong> e <strong>{apoiosSemana} por semana</strong> nas tuas {hLetivas}h diretas. O teu esforço conta e faz diferença para toda a equipa — é assim que o CAIDI funciona bem. Continua com este ritmo!
+                        </div>
                       </div>
                     )}
                   </div>
