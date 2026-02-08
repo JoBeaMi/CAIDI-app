@@ -523,7 +523,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const [showForm, setShowForm] = useState(null);
   const [quadIdx, setQuadIdx] = useState(null); // null = atual
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
-  const ap = data.resumoApoios && data.resumoApoios[terap.ID] ? data.resumoApoios[terap.ID].ef : 0;
+  const ap = data.resumoApoios && data.resumoApoios[String(terap.ID)] ? data.resumoApoios[String(terap.ID)].ef : 0;
   const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios);
   const saudePedidos = aus.filter(a => !a.Motivo.includes("Férias")).sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
@@ -602,7 +602,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const hoje = new Date();
               const equipaData = equipaTeraps.map(t => {
                 const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-                const tEf = data.resumoApoios && data.resumoApoios[t.ID] ? data.resumoApoios[t.ID].ef : 0;
+                const tEf = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
                 const tM = calc(t, tEf, tAus, data.periodos, data.fecho, data.horarios);
                 const emBaixa = tAus.some(a => a.Motivo === "Baixa Médica" && a.Estado === "Aprovado" && hojeStr >= a["Data Início"] && hojeStr <= a["Data Fim"]);
                 return { ...t, m: tM, emBaixa, hLetivas: Number(t["Horas Letivas"]) || 0 };
@@ -620,7 +620,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               // Somar semanas do resumo pré-calculado no servidor
               let apoiosEstaSem = 0, apoiosSemPassada = 0;
               equipaTeraps.forEach(t => {
-                const r = data.resumoApoios && data.resumoApoios[t.ID];
+                const r = data.resumoApoios && data.resumoApoios[String(t.ID)];
                 if (r) { apoiosEstaSem += r.semanaAtual || 0; apoiosSemPassada += r.semanaPassada || 0; }
               });
               
@@ -1509,7 +1509,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
           // Calc metrics for a specific quad
           const calcQ = (t, qx) => {
             const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-            const ap2 = data.resumoApoios && data.resumoApoios[t.ID] ? data.resumoApoios[t.ID].ef : 0;
+            const ap2 = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
             if (!qx) return calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios);
             const hLD = Number(t["Horas Letivas"]) / 5;
             const hSem = Number(t["Horas Semanais"]) / 5;
@@ -1637,7 +1637,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Pedidos pendentes {pend.length > 0 && <span style={{ background: C.redBg, color: C.red, padding: "2px 8px", borderRadius: 8, fontSize: 13, fontWeight: 800, marginLeft: 8 }}>{pend.length}</span>}</h2>
             {pend.length === 0 ? (
               <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}><div style={{ textAlign: "center", fontSize: 14, fontWeight: 700, color: C.green }}>✓ Sem pedidos pendentes!</div></Card>
-            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.resumoApoios && data.resumoApoios[t.ID] ? data.resumoApoios[t.ID].ef : 0, data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios) : null; return (
+            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0, data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios) : null; return (
               <Card key={i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1739,7 +1739,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               if (terFilt.length === 0) return <Card style={{ marginBottom: 10 }}><div style={{ textAlign: "center", fontSize: 13, color: C.gray }}>Nenhum terapeuta encontrado</div></Card>;
               return terFilt.map(t => {
                 const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-                const ap2 = data.resumoApoios && data.resumoApoios[t.ID] ? data.resumoApoios[t.ID].ef : 0;
+                const ap2 = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
                 const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios);
                 const tIsADM = t["Área"] === "ADM";
                 const pedidos = a2.sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
