@@ -1162,9 +1162,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                             ))}
                             {cells.map((c, i) => {
                               if (!c) return <div key={"e" + i} />;
-                              const bg = c.isFerias ? C.green : c.isPendente ? C.yellow : c.isFecho ? C.gray : c.isFeriadoNac ? C.blue : "transparent";
-                              const color = (c.isFerias || c.isFecho || c.isFeriadoNac) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
-                              const fw = (c.isFerias || c.isFecho || c.isPendente || c.isHoje || c.isFeriadoNac) ? 800 : 400;
+                              const bg = c.isFecho ? C.gray : c.isFerias ? C.green : c.isPendente ? C.yellow : c.isFeriadoNac ? C.blue : "transparent";
+                              const color = (c.isFecho || c.isFerias || c.isFeriadoNac) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
+                              const fw = (c.isFecho || c.isFerias || c.isPendente || c.isHoje || c.isFeriadoNac) ? 800 : 400;
                               const border = c.isHoje ? "2px solid " + C.dark : "2px solid transparent";
                               return (
                                 <div key={c.ds} style={{ fontSize: 9, fontWeight: fw, color, background: bg, borderRadius: 3, padding: "1px 0", lineHeight: 1.5, border, position: "relative" }}>
