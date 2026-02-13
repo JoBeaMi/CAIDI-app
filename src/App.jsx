@@ -886,35 +886,172 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             </div>
             )}
 
-            {/* Próximas férias aprovadas */}
+            {/* Férias marcadas com mini-calendário */}
             {(() => {
               const hojeStr = new Date().toISOString().slice(0, 10);
-              const feriasAprovadas = aus.filter(a => 
+              const hoje = new Date();
+              
+              // Todas as férias aprovadas (passadas e futuras)
+              const todasFerias = aus.filter(a => 
                 (a.Motivo === "Férias (Obrigatórias)" || a.Motivo === "Férias (Bónus)") && 
-                a.Estado === "Aprovado" && 
-                a["Data Fim"] >= hojeStr
+                a.Estado === "Aprovado"
               ).sort((a, b) => (a["Data Início"] || "").localeCompare(b["Data Início"] || ""));
               
-              if (feriasAprovadas.length === 0) return null;
+              // Também fecho CAIDI conta como férias
+              const fechoCAIDI = data.fecho || [];
+              
+              if (todasFerias.length === 0 && fechoCAIDI.length === 0) return null;
+              
+              // Construir set de dias de férias
+              const diasFerias = new Set();
+              const diasFecho = new Set();
+              const diasPendentes = new Set();
+              
+              // Férias aprovadas
+              todasFerias.forEach(f => {
+                const d = new Date(f["Data Início"]);
+                const fim = new Date(f["Data Fim"]);
+                while (d <= fim) {
+                  if (d.getDay() !== 0 && d.getDay() !== 6) {
+                    diasFerias.add(d.toISOString().slice(0, 10));
+                  }
+                  d.setDate(d.getDate() + 1);
+                }
+              });
+              
+              // Férias pendentes
+              aus.filter(a => 
+                (a.Motivo === "Férias (Obrigatórias)" || a.Motivo === "Férias (Bónus)") && 
+                a.Estado === "Pendente"
+              ).forEach(f => {
+                const d = new Date(f["Data Início"]);
+                const fim = new Date(f["Data Fim"]);
+                while (d <= fim) {
+                  if (d.getDay() !== 0 && d.getDay() !== 6) {
+                    diasPendentes.add(d.toISOString().slice(0, 10));
+                  }
+                  d.setDate(d.getDate() + 1);
+                }
+              });
+              
+              // Fecho CAIDI
+              fechoCAIDI.forEach(f => {
+                const d = new Date(f["Data Início"]);
+                const fim = new Date(f["Data Fim"]);
+                while (d <= fim) {
+                  if (d.getDay() !== 0 && d.getDay() !== 6) {
+                    diasFecho.add(d.toISOString().slice(0, 10));
+                  }
+                  d.setDate(d.getDate() + 1);
+                }
+              });
+              
+              // Meses a mostrar: mês atual + próximos meses com férias/fecho
+              const mesesComFerias = new Set();
+              [...diasFerias, ...diasFecho, ...diasPendentes].forEach(d => {
+                mesesComFerias.add(d.substring(0, 7)); // "2026-02"
+              });
+              // Sempre incluir mês atual
+              mesesComFerias.add(hojeStr.substring(0, 7));
+              
+              const mesesOrdenados = [...mesesComFerias].sort().slice(0, 6); // max 6 meses
+              
+              const nomeMes = (ym) => {
+                const [y, m] = ym.split("-");
+                const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+                return nomes[parseInt(m) - 1] + " " + y;
+              };
+              
+              const diasNoMes = (ym) => {
+                const [y, m] = ym.split("-");
+                return new Date(parseInt(y), parseInt(m), 0).getDate();
+              };
+              
+              const primeiroDiaSemana = (ym) => {
+                const [y, m] = ym.split("-");
+                const d = new Date(parseInt(y), parseInt(m) - 1, 1).getDay();
+                return d === 0 ? 6 : d - 1; // Segunda = 0
+              };
+
               return (
                 <Card delay={0.25} style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🌴 Férias marcadas</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {feriasAprovadas.map((f, i) => {
-                      const mi = motivoInfo(f.Motivo);
-                      const ativa = hojeStr >= f["Data Início"] && hojeStr <= f["Data Fim"];
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📅 As tuas férias</div>
+                  
+                  {/* Legenda */}
+                  <div style={{ display: "flex", gap: 12, marginBottom: 10, fontSize: 10 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.green, display: "inline-block" }} /> Aprovadas</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.yellow, display: "inline-block" }} /> Pendentes</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.gray, display: "inline-block" }} /> Fecho</span>
+                  </div>
+                  
+                  {/* Calendários */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {mesesOrdenados.map(ym => {
+                      const total = diasNoMes(ym);
+                      const offset = primeiroDiaSemana(ym);
+                      const cells = [];
+                      
+                      // Células vazias para offset
+                      for (let i = 0; i < offset; i++) cells.push(null);
+                      // Dias do mês
+                      for (let d = 1; d <= total; d++) {
+                        const ds = ym + "-" + String(d).padStart(2, "0");
+                        const dow = new Date(ds).getDay();
+                        const isWe = dow === 0 || dow === 6;
+                        const isFerias = diasFerias.has(ds);
+                        const isFecho = diasFecho.has(ds);
+                        const isPendente = diasPendentes.has(ds);
+                        const isHoje = ds === hojeStr;
+                        cells.push({ d, ds, isWe, isFerias, isFecho, isPendente, isHoje });
+                      }
+                      
                       return (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: ativa ? C.greenBg : C.grayBg, borderRadius: 10, border: ativa ? "1px solid #b2f5ea" : "none" }}>
-                          <span style={{ fontSize: 18 }}>{mi.icon}</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: C.dark }}>{fmtD(f["Data Início"])}{f["Data Início"] !== f["Data Fim"] ? " → " + fmtD(f["Data Fim"]) : ""}</div>
-                            <div style={{ fontSize: 10, color: C.darkSoft }}>{f["Dias Úteis"]}d · {mi.short}{f.Observações ? " · " + f.Observações : ""}</div>
+                        <div key={ym}>
+                          <div style={{ fontSize: 12, fontWeight: 800, color: C.dark, marginBottom: 4 }}>{nomeMes(ym)}</div>
+                          {/* Cabeçalho dias da semana */}
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, textAlign: "center" }}>
+                            {["S", "T", "Q", "Q", "S", "S", "D"].map((dl, i) => (
+                              <div key={i} style={{ fontSize: 8, fontWeight: 700, color: i >= 5 ? C.grayLight : C.gray, padding: "2px 0" }}>{dl}</div>
+                            ))}
+                            {cells.map((c, i) => {
+                              if (!c) return <div key={"e" + i} />;
+                              const bg = c.isFerias ? C.green : c.isPendente ? C.yellow : c.isFecho ? C.gray : c.isHoje ? C.teal : "transparent";
+                              const color = (c.isFerias || c.isFecho || c.isHoje) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
+                              const fw = (c.isFerias || c.isFecho || c.isPendente || c.isHoje) ? 800 : 400;
+                              return (
+                                <div key={c.ds} style={{ fontSize: 10, fontWeight: fw, color, background: bg, borderRadius: 4, padding: "3px 0", lineHeight: 1.4, position: "relative" }}>
+                                  {c.d}
+                                  {c.isHoje && !c.isFerias && !c.isFecho && <div style={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: 3, height: 3, borderRadius: "50%", background: C.teal }} />}
+                                </div>
+                              );
+                            })}
                           </div>
-                          {ativa && <span style={{ fontSize: 10, fontWeight: 800, color: C.green, background: C.white, padding: "2px 8px", borderRadius: 6 }}>Agora</span>}
                         </div>
                       );
                     })}
                   </div>
+                  
+                  {/* Lista resumida */}
+                  {todasFerias.filter(f => f["Data Fim"] >= hojeStr).length > 0 && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + C.grayLight }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {todasFerias.filter(f => f["Data Fim"] >= hojeStr).map((f, i) => {
+                          const mi = motivoInfo(f.Motivo);
+                          const ativa = hojeStr >= f["Data Início"] && hojeStr <= f["Data Fim"];
+                          return (
+                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", background: ativa ? C.greenBg : C.grayBg, borderRadius: 8 }}>
+                              <span style={{ fontSize: 14 }}>{mi.icon}</span>
+                              <div style={{ flex: 1 }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: C.dark }}>{fmtD(f["Data Início"])}{f["Data Início"] !== f["Data Fim"] ? " → " + fmtD(f["Data Fim"]) : ""}</span>
+                                <span style={{ fontSize: 10, color: C.darkSoft, marginLeft: 6 }}>{f["Dias Úteis"]}d{f.Observações ? " · " + f.Observações : ""}</span>
+                              </div>
+                              {ativa && <span style={{ fontSize: 9, fontWeight: 800, color: C.green, background: C.white, padding: "2px 6px", borderRadius: 4 }}>Agora</span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </Card>
               );
             })()}
