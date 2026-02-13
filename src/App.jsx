@@ -802,12 +802,80 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
 
             {m.dFI > 0 && <Card delay={0.2} style={{ marginTop: 8, background: C.redBg, border: "1px solid #f5c6c0", padding: 12 }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span>⚠️</span><span style={{ fontSize: 13, fontWeight: 700, color: C.red }}>{m.dFI} falta{m.dFI > 1 ? "s" : ""} injustificada{m.dFI > 1 ? "s" : ""}</span></div></Card>}
 
+            {/* ═══ CONTEÚDO ADM ═══ */}
+            {isADM && (() => {
+              const hSemanais = Number(terap["Horas Semanais"]) || 0;
+              const diasFerias = Number(terap["Dias Férias"]) || 22;
+              const hojeStr = new Date().toISOString().slice(0, 10);
+              
+              // Próximo fecho CAIDI
+              const proximoFecho = data.fecho.filter(f => f["Data Fim"] >= hojeStr).sort((a, b) => (a["Data Início"] || "").localeCompare(b["Data Início"] || ""))[0];
+              
+              // Frase do dia (mesma rotação dos terapeutas)
+              const dia = new Date().getDate();
+              const frasesADM = [
+                "O CAIDI existe porque há quem, nos bastidores, garanta que tudo funciona. O trabalho administrativo é a base que sustenta tudo o resto.",
+                "Cada documento tratado, cada agenda organizada, cada resposta dada a tempo — tudo isso permite que as crianças recebam o apoio que precisam.",
+                "Sem uma equipa administrativa forte, nenhuma organização funciona. O teu trabalho faz diferença todos os dias.",
+                "A organização, o rigor e a eficiência são pilares do CAIDI. E isso começa contigo.",
+                "Há famílias que dependem de nós. O teu trabalho garante que conseguimos dar-lhes resposta.",
+              ];
+              const frase = frasesADM[dia % frasesADM.length];
+
+              return (
+                <>
+                  {/* Frase do dia */}
+                  <Card delay={0.1} style={{ marginTop: 8, background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.tealDark, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>🤝 Equipa CAIDI</div>
+                    <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7 }}>{frase}</div>
+                  </Card>
+
+                  {/* O teu contrato */}
+                  <Card delay={0.15} style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📄 O teu contrato</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {[
+                        ["Horas semanais", hSemanais + "h", C.dark],
+                        ["Dias de férias (total)", diasFerias + "d", C.teal],
+                        ["Férias usadas", m.fU + "d", C.darkSoft],
+                        ["Férias por marcar", m.oR + "d", m.oR <= 3 ? C.red : C.green],
+                        ["Dias de baixa", m.dB + "d", m.dB > 0 ? C.purple : C.gray],
+                        ["Faltas justificadas", m.dFJ + "d", C.blue],
+                        ["Faltas injustificadas", m.dFI + "d", m.dFI > 0 ? C.red : C.gray],
+                        ["Formações", m.dFO + "d", m.dFO > 0 ? C.orange : C.gray],
+                      ].map(([label, val, color], i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 10px", background: i % 2 === 0 ? C.grayBg : C.white, borderRadius: 8 }}>
+                          <span style={{ fontSize: 12, color: C.darkSoft }}>{label}</span>
+                          <span style={{ fontSize: 13, fontWeight: 800, color }}>{val}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+
+                  {/* Próximo fecho */}
+                  {proximoFecho && (
+                    <Card delay={0.2} style={{ marginTop: 8, background: "linear-gradient(135deg, " + C.purpleBg + ", " + C.white + ")", border: "1px solid #e0d6ff" }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: C.purple, textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>🏢 Próximo fecho CAIDI</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div style={{ fontSize: 32 }}>📅</div>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{proximoFecho.Nome}</div>
+                          <div style={{ fontSize: 12, color: C.darkSoft }}>{fmtDF(proximoFecho["Data Início"])}{proximoFecho["Data Início"] !== proximoFecho["Data Fim"] ? " → " + fmtDF(proximoFecho["Data Fim"]) : ""}</div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: C.purple, marginTop: 2 }}>{proximoFecho["Dias Úteis"]} dias úteis</div>
+                        </div>
+                      </div>
+                    </Card>
+                  )}
+                </>
+              );
+            })()}
+
             {!isADM && (
             <div style={{ marginTop: 8 }}>
               {m.ef < m.mBonus ? (
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.yellowBg + ", " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>Faltam-te {m.mBonus - m.ef} apoios para o dia bónus!</div><div style={{ fontSize: 12, color: C.darkSoft }}>85% do objetivo = +1 dia de férias</div></div></div></Card>
               ) : m.ef < m.mMin ? (
-                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Dia bónus garantido! ✅</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mMin - m.ef} para a meta mínima</div></div></div></Card>
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Dia bónus garantido! ✅</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mMin - m.ef} para o objetivo mínimo</div></div></div></Card>
               ) : m.ef < m.mE2 ? (
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎯</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.tealDark }}>Meta cumprida! Faltam {m.mE2 - m.ef} para os 5€/apoio</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra a partir daí = 5€</div></div></div></Card>
               ) : m.ef < m.mE3 ? (
@@ -817,6 +885,39 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               )}
             </div>
             )}
+
+            {/* Próximas férias aprovadas */}
+            {(() => {
+              const hojeStr = new Date().toISOString().slice(0, 10);
+              const feriasAprovadas = aus.filter(a => 
+                (a.Motivo === "Férias (Obrigatórias)" || a.Motivo === "Férias (Bónus)") && 
+                a.Estado === "Aprovado" && 
+                a["Data Fim"] >= hojeStr
+              ).sort((a, b) => (a["Data Início"] || "").localeCompare(b["Data Início"] || ""));
+              
+              if (feriasAprovadas.length === 0) return null;
+              return (
+                <Card delay={0.25} style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🌴 Férias marcadas</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {feriasAprovadas.map((f, i) => {
+                      const mi = motivoInfo(f.Motivo);
+                      const ativa = hojeStr >= f["Data Início"] && hojeStr <= f["Data Fim"];
+                      return (
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: ativa ? C.greenBg : C.grayBg, borderRadius: 10, border: ativa ? "1px solid #b2f5ea" : "none" }}>
+                          <span style={{ fontSize: 18 }}>{mi.icon}</span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: C.dark }}>{fmtD(f["Data Início"])}{f["Data Início"] !== f["Data Fim"] ? " → " + fmtD(f["Data Fim"]) : ""}</div>
+                            <div style={{ fontSize: 10, color: C.darkSoft }}>{f["Dias Úteis"]}d · {mi.short}{f.Observações ? " · " + f.Observações : ""}</div>
+                          </div>
+                          {ativa && <span style={{ fontSize: 10, fontWeight: 800, color: C.green, background: C.white, padding: "2px 8px", borderRadius: 6 }}>Agora</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Card>
+              );
+            })()}
 
             {pend > 0 && <Card delay={0.28} style={{ marginTop: 8, background: C.yellowBg, border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span>⏳</span><span style={{ fontSize: 13, fontWeight: 700, color: C.red, flex: 1 }}>{pend} pendente{pend > 1 ? "s" : ""}</span><button onClick={() => setTab("pedidos")} style={{ background: C.red + "15", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, color: C.red, cursor: "pointer" }}>Ver →</button></div></Card>}
           </div>
