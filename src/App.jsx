@@ -364,7 +364,7 @@ function Login({ terapeutas, config, onLogin }) {
 }
 
 /* ═══════════════════════ ABSENCE FORM ═══════════════════════ */
-function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
+function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose }) {
   const [fD, setFD] = useState({ inicio: "", fim: "" });
   const [fN, setFN] = useState("");
   const [justLetivo, setJustLetivo] = useState("");
@@ -410,10 +410,10 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
 
   // Calcular dias de fecho que caem no pedido (para info visual)
   const fechoNoPedido = (() => {
-    if (!fD.inicio || !fD.fim || !data.fecho || !isFerias) return 0;
+    if (!fD.inicio || !fD.fim || !fecho || !isFerias) return 0;
     const fmtYMD = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
     let count = 0;
-    data.fecho.forEach(f => {
+    fecho.forEach(f => {
       const fI = new Date(f["Data Início"] + "T12:00:00"), fF = new Date(f["Data Fim"] + "T12:00:00");
       const pI = new Date(fD.inicio + "T12:00:00"), pF = new Date(fD.fim + "T12:00:00");
       const oI = fI > pI ? fI : pI, oF = fF < pF ? fF : pF;
@@ -436,9 +436,9 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
     
     // Subtrair dias de fecho CAIDI que caiam dentro do pedido de férias
     let diasFechoNoPedido = 0;
-    if (isFerias && data.fecho) {
+    if (isFerias && fecho) {
       const fmtYMD = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-      data.fecho.forEach(f => {
+      fecho.forEach(f => {
         const fI = new Date(f["Data Início"] + "T12:00:00");
         const fF = new Date(f["Data Fim"] + "T12:00:00");
         const pI = new Date(fD.inicio + "T12:00:00");
@@ -473,8 +473,8 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
         
         // Construir set de dias de fecho para saltar
         const diasFechoSet = new Set();
-        if (data.fecho) {
-          data.fecho.forEach(f => {
+        if (fecho) {
+          fecho.forEach(f => {
             const d = new Date(f["Data Início"] + "T12:00:00");
             const fim = new Date(f["Data Fim"] + "T12:00:00");
             while (d <= fim) { diasFechoSet.add(d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0")); d.setDate(d.getDate() + 1); }
@@ -1642,7 +1642,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
         )}
       </div>
 
-      {showForm && <AbsenceForm type={showForm} terap={terap} metrics={m} periodos={data.periodos} onSubmit={handleSubmit} onClose={() => setShowForm(null)} />}
+      {showForm && <AbsenceForm type={showForm} terap={terap} metrics={m} periodos={data.periodos} fecho={data.fecho} onSubmit={handleSubmit} onClose={() => setShowForm(null)} />}
 
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 420, background: C.white, borderTop: "1px solid " + C.grayLight, display: "flex", justifyContent: "space-around", padding: "6px 0 12px", boxShadow: "0 -4px 20px rgba(0,0,0,0.04)" }}>
         {tabs.map(tb => (
