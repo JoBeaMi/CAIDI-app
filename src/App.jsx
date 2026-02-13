@@ -93,6 +93,50 @@ function contarDiasFerias(i, f, fechoSet) {
   return c;
 }
 
+/* ═══════════════════════ ALTERAÇÕES (HISTÓRICO CONTRATUAL) ═══════════════════════ */
+// Dado um terapeuta e uma data, retorna { hLetivas, hSemanais } em vigor nesse dia
+function getAlteracoesTerap(alteracoes, tId) {
+  if (!alteracoes || !alteracoes.length) return [];
+  return alteracoes
+    .filter(a => String(a.ID).trim() === String(tId).trim())
+    .sort((a, b) => (a.Data || "").localeCompare(b.Data || ""));
+}
+function getHorasNoDia(altList, dia, fallbackHL, fallbackHS) {
+  // altList já filtrado e ordenado para este terapeuta
+  let hL = fallbackHL, hS = fallbackHS;
+  for (const a of altList) {
+    if (a.Data && a.Data <= dia) {
+      hL = Number(a["Horas Letivas"]) || hL;
+      hS = Number(a["Horas Semanais"]) || hS;
+    } else break;
+  }
+  return { hL, hS };
+}
+// Calcular objetivo somando dia a dia (cada dia usa as horas em vigor)
+function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbackHS) {
+  if (!inicio || !fim) return { mMin: 0, mE3: 0, hLDMedia: 0, hSMedia: 0 };
+  let somaHL = 0, somaHS = 0, dias = 0;
+  const d = new Date(inicio + "T12:00:00"), e = new Date(fim + "T12:00:00");
+  while (d <= e) {
+    if (d.getDay() !== 0 && d.getDay() !== 6) {
+      const ds = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+      if (!FERIADOS_2026.has(ds)) {
+        const { hL, hS } = getHorasNoDia(altList, ds, fallbackHL, fallbackHS);
+        somaHL += hL / 5;
+        somaHS += hS / 5;
+        dias++;
+      }
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  // Subtrair dias de baixa proporcionalmente (usando média)
+  const hLDMedia = dias > 0 ? somaHL / dias : fallbackHL / 5;
+  const hSMedia = dias > 0 ? somaHS / dias : fallbackHS / 5;
+  const mMin = Math.round(somaHL - (diasBaixa * hLDMedia));
+  const mE3 = Math.round((somaHS - (diasBaixa * hSMedia)) * 1.05);
+  return { mMin: Math.max(mMin, 0), mE3: Math.max(mE3, 0), hLDMedia, hSMedia };
+}
+
 /* ═══════════════════════ CÁLCULOS ═══════════════════════ */
 function contarDiasUteis(i, f) {
   if (!i || !f) return 0;
@@ -111,7 +155,7 @@ function contarDiasUteis(i, f) {
    Q1: 1 Set → 31 Dez  (contém 1.º Período letivo)
    Q2: 1 Jan → 13 Abr  (contém 2.º Período letivo)
    Q3: 14 Abr → 31 Ago (contém 3.º Período letivo)
-   META = dias úteis do período LETIVO × horas letivas/dia
+   OBJETIVO = dias úteis do período LETIVO × horas letivas/dia
    Tempo para cumprir = quadrimestre inteiro */
 function buildQuadrimestres(periodos) {
   if (!periodos || periodos.length === 0) return [];
@@ -179,7 +223,7 @@ function contarDiasTrabAus(ausList, hor) {
   return count;
 }
 
-function calc(t, efCount, aus, periodos, fecho, horarios) {
+function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
   const quads = buildQuadrimestres(periodos);
   const q = quadAtual(quads);
   if (!q) return emptyMetrics();
@@ -190,7 +234,6 @@ function calc(t, efCount, aus, periodos, fecho, horarios) {
   const dLetivoHoje = contarDiasUteis(q.letivoInicio, hojeStr > q.letivoFim ? q.letivoFim : hojeStr);
   const dQuadTotal = contarDiasUteis(q.qInicio, q.qFim);
   const dQuadHoje = contarDiasUteis(q.qInicio, hojeStr > q.qFim ? q.qFim : hojeStr);
-  const hLD = Number(t["Horas Letivas"]) / 5;
 
   const ausQ = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= q.qFim && a["Data Fim"] >= q.qInicio);
   const dB  = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
@@ -198,11 +241,17 @@ function calc(t, efCount, aus, periodos, fecho, horarios) {
   const dFI = ausQ.filter(a => a.Motivo === "Falta Injustificada").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const dFO = ausQ.filter(a => a.Motivo === "Formação").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
 
-  const mMin = Math.round(hLD * (dLetivoTotal - dB));
+  // Usar alterações dia a dia se disponíveis, senão fallback para valores fixos
+  const altList = getAlteracoesTerap(alteracoes, t.ID);
+  const fallbackHL = Number(t["Horas Letivas"]) || 0;
+  const fallbackHS = Number(t["Horas Semanais"]) || 40;
+  const obj = calcObjetivoDiario(altList, q.letivoInicio, q.letivoFim, dB, fallbackHL, fallbackHS);
+  const mMin = obj.mMin;
+  const hLD = obj.hLDMedia;
+  const hSem = obj.hSMedia;
+  const mE3 = obj.mE3;
   const mBonus = Math.round(mMin * 0.85);
   const mE2 = Math.round(mMin * 1.05);
-  const hSem = Number(t["Horas Semanais"]) / 5;
-  const mE3 = Math.round(hSem * (dLetivoTotal - dB) * 1.05);
   const progQuad = dQuadTotal > 0 ? dQuadHoje / dQuadTotal : 1;
   const mH = Math.round(mMin * progQuad);
   const ef = typeof efCount === "number" ? efCount : (Array.isArray(efCount) ? efCount.filter(a => a.Tipo === "Efetivado" && a.Data >= q.qInicio && a.Data <= q.qFim).length : 0);
@@ -646,7 +695,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const [quadIdx, setQuadIdx] = useState(null); // null = atual
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
   const ap = data.resumoApoios && data.resumoApoios[String(terap.ID)] ? data.resumoApoios[String(terap.ID)].ef : 0;
-  const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios);
+  const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios, data.alteracoes);
   const saudePedidos = aus.filter(a => !a.Motivo.includes("Férias")).sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const pend = aus.filter(p => p.Estado === "Pendente").length;
@@ -659,8 +708,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const calcQuad = (qx) => {
     if (!qx) return m;
     const hojeStr = new Date().toISOString().slice(0, 10);
-    const hLD = Number(terap["Horas Letivas"]) / 5;
-    const hSem = Number(terap["Horas Semanais"]) / 5;
+    const fallbackHL = Number(terap["Horas Letivas"]) || 0;
+    const fallbackHS = Number(terap["Horas Semanais"]) || 40;
+    const altList = getAlteracoesTerap(data.alteracoes, terap.ID);
     const dLetivoTotal = contarDiasUteis(qx.letivoInicio, qx.letivoFim);
     const dQuadTotal = contarDiasUteis(qx.qInicio, qx.qFim);
     const dQuadHoje = contarDiasUteis(qx.qInicio, hojeStr > qx.qFim ? qx.qFim : hojeStr);
@@ -668,10 +718,13 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
     const dExtraTotal = Math.max(dQuadTotal - dLetivoTotal, 0);
     const ausQ = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= qx.qFim && a["Data Fim"] >= qx.qInicio);
     const dB = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-    const mMin = Math.round(hLD * (dLetivoTotal - dB));
+    const obj = calcObjetivoDiario(altList, qx.letivoInicio, qx.letivoFim, dB, fallbackHL, fallbackHS);
+    const mMin = obj.mMin;
+    const hLD = obj.hLDMedia;
+    const hSem = obj.hSMedia;
+    const mE3 = obj.mE3;
     const mBonus = Math.round(mMin * 0.85);
     const mE2 = Math.round(mMin * 1.05);
-    const mE3 = Math.round(hSem * (dLetivoTotal - dB) * 1.05);
     const progQuad = dQuadTotal > 0 ? dQuadHoje / dQuadTotal : 1;
     const progLetivo = dLetivoTotal > 0 ? dLetivoHoje / dLetivoTotal : 1;
     const mH = Math.round(mMin * progQuad);
@@ -726,9 +779,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const equipaData = equipaTeraps.map(t => {
                 const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
                 const tEf = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
-                const tM = calc(t, tEf, tAus, data.periodos, data.fecho, data.horarios);
+                const tM = calc(t, tEf, tAus, data.periodos, data.fecho, data.horarios, data.alteracoes);
                 const emBaixa = tAus.some(a => a.Motivo === "Baixa Médica" && a.Estado === "Aprovado" && hojeStr >= a["Data Início"] && hojeStr <= a["Data Fim"]);
-                return { ...t, m: tM, emBaixa, hLetivas: Number(t["Horas Letivas"]) || 0 };
+                return { ...t, m: tM, emBaixa, hLetivas: Math.round(tM.hLD * 5 * 10) / 10 || Number(t["Horas Letivas"]) || 0 };
               });
               
               const emBaixaCount = equipaData.filter(t => t.emBaixa).length;
@@ -1001,7 +1054,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               ) : m.ef < m.mMin ? (
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Dia bónus garantido! ✅</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mMin - m.ef} para o objetivo mínimo</div></div></div></Card>
               ) : m.ef < m.mE2 ? (
-                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎯</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.tealDark }}>Meta cumprida! Faltam {m.mE2 - m.ef} para os 5€/apoio</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra a partir daí = 5€</div></div></div></Card>
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎯</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.tealDark }}>Objetivo cumprido! Faltam {m.mE2 - m.ef} para os 5€/apoio</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra a partir daí = 5€</div></div></div></Card>
               ) : m.ef < m.mE3 ? (
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>💰</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>A ganhar 5€/apoio! Já tens +{m.eurosTotal}€</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mE3 - m.ef} para os 10€/apoio</div></div></div></Card>
               ) : (
@@ -1207,7 +1260,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
           </div>
         )}
 
-        {/* ═══ TAB META ═══ */}
+        {/* ═══ TAB OBJETIVO ═══ */}
         {tab === "objetivo" && !isADM && (
           <div>
             {/* Navegação quadrimestres */}
@@ -1323,7 +1376,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 )}
               </div>
               <div style={{ marginTop: 10, padding: "8px 12px", background: C.white, borderRadius: 10, border: "2px solid " + C.teal, textAlign: "center" }}>
-                <div style={{ fontSize: 11, color: C.gray, fontWeight: 700 }}>META = ({mq.dLetivoTotal}{mq.dB > 0 ? " − " + mq.dB : ""}) × {mq.hLD.toFixed(1)}h</div>
+                <div style={{ fontSize: 11, color: C.gray, fontWeight: 700 }}>OBJETIVO = ({mq.dLetivoTotal}{mq.dB > 0 ? " − " + mq.dB : ""}) × {mq.hLD.toFixed(1)}h</div>
                 <div style={{ fontSize: 28, fontWeight: 900, color: C.teal }}>{mq.mMin}</div>
               </div>
             </Card>
@@ -1332,8 +1385,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             <Card delay={0.17} style={{ marginTop: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 O teu ritmo real</div>
               {(() => {
-                const hLetivas = Number(terap["Horas Letivas"]);
-                const hSemanais = Number(terap["Horas Semanais"]);
+                const hLetivas = mq.hLD * 5; // média ponderada do quadrimestre
+                const hSemanais = mq.hSem * 5;
                 const hIndiretas = hSemanais - hLetivas;
                 // Usar dias LETIVOS decorridos (descontando baixa) — não dias do quadrimestre
                 const diasLetivosTrab = Math.max((mq.dLetivoHoje || mq.dQuadHoje) - mq.dB, 1);
@@ -1519,8 +1572,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>⭐ Objetivos</div>
               {[
                 { l: "Dia bónus de férias", desc: "85% do objetivo", v: mq.mBonus, icon: "🎁", active: mq.ef >= mq.mBonus, color: C.green },
-                { l: "Meta mínima", desc: "100%", v: mq.mMin, icon: "🎯", active: mq.ef >= mq.mMin, color: C.teal },
-                { l: "5€ por apoio extra", desc: "Meta + 5%", v: mq.mE2, icon: "💰", active: mq.ef >= mq.mE2, color: C.green },
+                { l: "Objetivo mínimo", desc: "100%", v: mq.mMin, icon: "🎯", active: mq.ef >= mq.mMin, color: C.teal },
+                { l: "5€ por apoio extra", desc: "Objetivo + 5%", v: mq.mE2, icon: "💰", active: mq.ef >= mq.mE2, color: C.green },
                 { l: "10€ por apoio extra", desc: "H. semanais + 5%", v: mq.mE3, icon: "💎", active: mq.ef >= mq.mE3, color: "#E17055" },
               ].map((e, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, marginBottom: 4, background: e.active ? C.greenBg : C.grayBg, border: "1px solid " + (e.active ? "#b2f5ea" : C.grayLight) }}>
@@ -1929,20 +1982,24 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
             const resumo = data.resumoApoios && data.resumoApoios[String(t.ID)] || { ef: 0, efPorQuad: {} };
             const efAtual = resumo.ef || 0;
-            if (!qx) return calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios);
+            if (!qx) return calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes);
             // Para quadrimestre específico, usar efPorQuad
             const ef = resumo.efPorQuad && resumo.efPorQuad[qx.label] ? resumo.efPorQuad[qx.label] : (qx.label === (allQuads[currentIdx] || {}).label ? efAtual : 0);
-            const hLD = Number(t["Horas Letivas"]) / 5;
-            const hSem = Number(t["Horas Semanais"]) / 5;
+            const fallbackHL = Number(t["Horas Letivas"]) || 0;
+            const fallbackHS = Number(t["Horas Semanais"]) || 40;
+            const altList = getAlteracoesTerap(data.alteracoes, t.ID);
             const dLT = contarDiasUteis(qx.letivoInicio, qx.letivoFim);
             const dQT = contarDiasUteis(qx.qInicio, qx.qFim);
             const dQH = contarDiasUteis(qx.qInicio, hojeStr > qx.qFim ? qx.qFim : hojeStr);
             const ausQ = aus2.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= qx.qFim && a["Data Fim"] >= qx.qInicio);
             const dB = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-            const mMin = Math.round(hLD * (dLT - dB));
+            const obj = calcObjetivoDiario(altList, qx.letivoInicio, qx.letivoFim, dB, fallbackHL, fallbackHS);
+            const mMin = obj.mMin;
+            const hLD = obj.hLDMedia;
+            const hSem = obj.hSMedia;
+            const mE3 = obj.mE3;
             const mBonus = Math.round(mMin * 0.85);
             const mE2 = Math.round(mMin * 1.05);
-            const mE3 = Math.round(hSem * (dLT - dB) * 1.05);
             const progQ = dQT > 0 ? dQH / dQT : 1;
             const mH = Math.round(mMin * progQ);
             const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
@@ -1951,7 +2008,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             const euros10 = ef > mE3 ? ef - mE3 : 0;
             const eurosTotal = (euros5 * 5) + (euros10 * 10);
             const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
-            const mBase = calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios);
+            const mBase = calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes);
             return { ...mBase, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, sc, eurosTotal, dB, quad: qx, passado: hojeStr > qx.qFim };
           };
 
@@ -2057,7 +2114,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Pedidos pendentes {pend.length > 0 && <span style={{ background: C.redBg, color: C.red, padding: "2px 8px", borderRadius: 8, fontSize: 13, fontWeight: 800, marginLeft: 8 }}>{pend.length}</span>}</h2>
             {pend.length === 0 ? (
               <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}><div style={{ textAlign: "center", fontSize: 14, fontWeight: 700, color: C.green }}>✓ Sem pedidos pendentes!</div></Card>
-            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0, data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios) : null; return (
+            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0, data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios, data.alteracoes) : null; return (
               <Card key={i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2160,7 +2217,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               return terFilt.map(t => {
                 const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
                 const ap2 = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
-                const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios);
+                const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios, data.alteracoes);
                 const tIsADM = t["Área"] === "ADM";
                 const pedidos = a2.sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
                 return (
@@ -2202,7 +2259,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       )}
                       {!tIsADM && (
                         <div style={{ marginTop: 8, padding: "6px 10px", background: C.white, borderRadius: 8, fontSize: 11, color: C.darkSoft }}>
-                          🎯 Meta: <strong>{m2.ef}/{m2.mMin}</strong> ({m2.pM}%){m2.eurosTotal > 0 ? " · 💶 +" + m2.eurosTotal + "€" : ""}
+                          🎯 Objetivo: <strong>{m2.ef}/{m2.mMin}</strong> ({m2.pM}%){m2.eurosTotal > 0 ? " · 💶 +" + m2.eurosTotal + "€" : ""}
                         </div>
                       )}
                     </Card>
