@@ -65,6 +65,34 @@ function isFeriado(dateStr) {
   return FERIADOS_2026.has(dateStr);
 }
 
+// Construir set de dias de fecho a partir da lista
+function buildFechoSet(fecho) {
+  const set = new Set();
+  if (!fecho) return set;
+  fecho.forEach(f => {
+    const d = new Date(f["Data Início"] + "T12:00:00"), fim = new Date(f["Data Fim"] + "T12:00:00");
+    while (d <= fim) {
+      set.add(d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"));
+      d.setDate(d.getDate() + 1);
+    }
+  });
+  return set;
+}
+
+// Contar dias de férias reais: sem fds, feriados NEM fecho
+function contarDiasFerias(i, f, fechoSet) {
+  if (!i || !f) return 0;
+  let c = 0; const d = new Date(i), e = new Date(f);
+  while (d <= e) {
+    if (d.getDay() % 6 !== 0) {
+      const ds = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+      if (!FERIADOS_2026.has(ds) && !fechoSet.has(ds)) c++;
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return c;
+}
+
 /* ═══════════════════════ CÁLCULOS ═══════════════════════ */
 function contarDiasUteis(i, f) {
   if (!i || !f) return 0;
@@ -189,51 +217,48 @@ function calc(t, efCount, aus, periodos, fecho, horarios) {
   const diasTrab = hor ? hor.diasTrab : 5;
   const diasFeriasCAIDI = hor ? hor.diasFeriasCAIDI : 22;
   const fechoCAIDI = contarDiasTrabFecho(fecho, hor);
-  const tF = fecho.reduce((s, f) => s + Number(f["Dias Úteis"] || 0), 0);
+  // Recalcular dias de fecho (não confiar no Sheets)
+  const fechoSet = buildFechoSet(fecho);
+  const tF = (() => {
+    let count = 0;
+    fecho.forEach(f => {
+      const d = new Date(f["Data Início"] + "T12:00:00"), fim = new Date(f["Data Fim"] + "T12:00:00");
+      while (d <= fim) {
+        if (d.getDay() !== 0 && d.getDay() !== 6) {
+          const ds = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+          if (!FERIADOS_2026.has(ds)) count++;
+        }
+        d.setDate(d.getDate() + 1);
+      }
+    });
+    return count;
+  })();
 
   const feriasPedidas = aus.filter(a => a.Motivo.includes("Férias") && (a.Estado === "Aprovado" || a.Estado === "Pendente"));
   const feriasCAIDI = contarDiasTrabAus(feriasPedidas, hor);
-  const fUObrigPedidas = feriasPedidas.filter(a => a.Motivo === "Férias (Obrigatórias)");
-  const fUPedidosBruto = fUObrigPedidas.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   
-  // Subtrair dias de fecho que caiam dentro de férias obrigatórias pedidas (evitar contagem dupla)
-  let fechoSobrepostoObrig = 0;
+  // Contar dias reais de férias (merge de intervalos para evitar duplicação com split)
   const fmtYMDcalc = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-  fUObrigPedidas.forEach(fp => {
-    fecho.forEach(fc => {
-      const fI = new Date(fc["Data Início"] + "T12:00:00"), fF = new Date(fc["Data Fim"] + "T12:00:00");
-      const pI = new Date(fp["Data Início"] + "T12:00:00"), pF = new Date(fp["Data Fim"] + "T12:00:00");
-      const oI = fI > pI ? fI : pI, oF = fF < pF ? fF : pF;
-      if (oI <= oF) {
-        const d = new Date(oI);
-        while (d <= oF) {
-          if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(fmtYMDcalc(d))) fechoSobrepostoObrig++;
-          d.setDate(d.getDate() + 1);
-        }
+  const diasFeriasSet = new Set();
+  feriasPedidas.forEach(fp => {
+    if (!fp["Data Início"] || !fp["Data Fim"]) return;
+    const d = new Date(fp["Data Início"] + "T12:00:00"), fim = new Date(fp["Data Fim"] + "T12:00:00");
+    while (d <= fim) {
+      const ds = fmtYMDcalc(d);
+      if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(ds) && !fechoSet.has(ds)) {
+        diasFeriasSet.add(ds);
       }
-    });
+      d.setDate(d.getDate() + 1);
+    }
   });
-  const fUPedidas = Math.max(fUPedidosBruto - fechoSobrepostoObrig, 0);
+  const totalFeriasReais = diasFeriasSet.size;
+  
+  // Distribuir: primeiro preenche obrigatórias, resto vai para bónus
+  const maxObrigRestantes = Math.max(Number(t["Dias Férias"]) - tF, 0);
+  const fUPedidas = Math.min(totalFeriasReais, maxObrigRestantes);
   const fU = fUPedidas + tF;
-  const bUBruto = aus.filter(a => a.Motivo === "Férias (Bónus)" && (a.Estado === "Aprovado" || a.Estado === "Pendente"));
-  // Subtrair fecho sobreposto com bónus também
-  let fechoSobrepostoBon = 0;
-  bUBruto.forEach(fp => {
-    fecho.forEach(fc => {
-      const fI = new Date(fc["Data Início"] + "T12:00:00"), fF = new Date(fc["Data Fim"] + "T12:00:00");
-      const pI = new Date(fp["Data Início"] + "T12:00:00"), pF = new Date(fp["Data Fim"] + "T12:00:00");
-      const oI = fI > pI ? fI : pI, oF = fF < pF ? fF : pF;
-      if (oI <= oF) {
-        const d = new Date(oI);
-        while (d <= oF) {
-          if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(fmtYMDcalc(d))) fechoSobrepostoBon++;
-          d.setDate(d.getDate() + 1);
-        }
-      }
-    });
-  });
-  const bU = Math.max(bUBruto.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0) - fechoSobrepostoBon, 0);
-  const oR = Math.max(Number(t["Dias Férias"]) - Math.min(fU, Number(t["Dias Férias"])), 0);
+  const bU = Math.max(totalFeriasReais - fUPedidas, 0);
+  const oR = Math.max(Number(t["Dias Férias"]) - fU, 0);
   const dBn = Number(t["Dias Bónus Ganhos"] || 0);
   const hSemanaisContrato = Number(t["Horas Semanais"]) || 40;
   const maxBonusPossivel = 15;
@@ -448,15 +473,8 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
   // Calcular dias de fecho que caem no pedido (para info visual)
   const fechoNoPedido = (() => {
     if (!fD.inicio || !fD.fim || !fecho || !isFerias) return 0;
-    const fmtYMD = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-    let count = 0;
-    fecho.forEach(f => {
-      const fI = new Date(f["Data Início"] + "T12:00:00"), fF = new Date(f["Data Fim"] + "T12:00:00");
-      const pI = new Date(fD.inicio + "T12:00:00"), pF = new Date(fD.fim + "T12:00:00");
-      const oI = fI > pI ? fI : pI, oF = fF < pF ? fF : pF;
-      if (oI <= oF) { const d = new Date(oI); while (d <= oF) { if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(fmtYMD(d))) count++; d.setDate(d.getDate() + 1); } }
-    });
-    return count;
+    const fs = buildFechoSet(fecho);
+    return contarDiasUteis(fD.inicio, fD.fim) - contarDiasFerias(fD.inicio, fD.fim, fs);
   })();
   const ultrapassaCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI < diasTrabPedido;
   const esgotouCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI <= 0;
@@ -468,35 +486,10 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     if (esgotouCAIDI) { setErrMsg("Já usaste todos os dias de trabalho disponíveis no CAIDI. Contacta a gestão."); return; }
     if (ultrapassaCAIDI) { setErrMsg("Este pedido usa " + diasTrabPedido + " dias de trabalho mas só tens " + metrics.restamCAIDI + " disponíveis. Ajusta as datas."); return; }
     setSub(true); setErrMsg("");
-    let dias = contarDiasUteis(fD.inicio, fD.fim);
+    const fechoSetLocal = buildFechoSet(fecho);
+    let dias = isFerias ? contarDiasFerias(fD.inicio, fD.fim, fechoSetLocal) : contarDiasUteis(fD.inicio, fD.fim);
     if (mesmoDia && periodo !== "dia") dias = 0.5;
-    
-    // Subtrair dias de fecho CAIDI que caiam dentro do pedido de férias
-    let diasFechoNoPedido = 0;
-    if (isFerias && fecho) {
-      const fmtYMD = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-      fecho.forEach(f => {
-        const fI = new Date(f["Data Início"] + "T12:00:00");
-        const fF = new Date(f["Data Fim"] + "T12:00:00");
-        const pI = new Date(fD.inicio + "T12:00:00");
-        const pF = new Date(fD.fim + "T12:00:00");
-        // Interseção
-        const overlapI = fI > pI ? fI : pI;
-        const overlapF = fF < pF ? fF : pF;
-        if (overlapI <= overlapF) {
-          const d = new Date(overlapI);
-          while (d <= overlapF) {
-            if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(fmtYMD(d))) {
-              diasFechoNoPedido++;
-            }
-            d.setDate(d.getDate() + 1);
-          }
-        }
-      });
-      if (diasFechoNoPedido > 0) {
-        dias = Math.max(dias - diasFechoNoPedido, 0);
-      }
-    }
+    const fechoNoDias = isFerias ? contarDiasUteis(fD.inicio, fD.fim) - dias : 0;
     const periodoLabel = mesmoDia && periodo !== "dia" ? (periodo === "manha" ? " (Manhã)" : " (Tarde)") : "";
     const notaFinal = (emLetivo && isFerias ? (fN ? fN + " | " : "") + "⚠️ LETIVO (" + emLetivo + "): " + justLetivo : fN) + periodoLabel;
     let ficheiroData = null;
@@ -504,48 +497,17 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
 
     try {
       if (isFerias && metrics.oR > 0 && dias > metrics.oR) {
-        // Dividir: parte obrigatória + parte bónus
+        // Auto-split: mesmas datas, dois pedidos com motivos e dias diferentes
         const diasObrig = metrics.oR;
         const diasBonus = dias - diasObrig;
         
-        // Construir set de dias de fecho para saltar
-        const diasFechoSet = new Set();
-        if (fecho) {
-          fecho.forEach(f => {
-            const d = new Date(f["Data Início"] + "T12:00:00");
-            const fim = new Date(f["Data Fim"] + "T12:00:00");
-            while (d <= fim) { diasFechoSet.add(d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0")); d.setDate(d.getDate() + 1); }
-          });
-        }
+        // Pedido 1: Obrigatórias (dias que cabem nos 22)
+        await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: "Férias (Obrigatórias)", nota: notaFinal + " [auto: " + diasObrig + "d obrig. de " + dias + "d]", periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
+        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: "Férias (Obrigatórias)", "Dias Úteis": diasObrig, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: "" });
         
-        // Encontrar a data de corte: contar diasObrig dias úteis (sem feriados nem fecho)
-        let corteDia = new Date(fD.inicio + "T12:00:00");
-        let contados = 0;
-        const fmtDate = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-        while (contados < diasObrig) {
-          const ds = fmtDate(corteDia);
-          if (corteDia.getDay() !== 0 && corteDia.getDay() !== 6 && !FERIADOS_2026.has(ds) && !diasFechoSet.has(ds)) {
-            contados++;
-          }
-          if (contados < diasObrig) corteDia.setDate(corteDia.getDate() + 1);
-        }
-        const dataCorte = fmtDate(corteDia);
-        
-        // Dia seguinte útil (sem feriado nem fecho) para início do bónus
-        let inicioBonus = new Date(corteDia);
-        inicioBonus.setDate(inicioBonus.getDate() + 1);
-        while (inicioBonus.getDay() === 0 || inicioBonus.getDay() === 6 || FERIADOS_2026.has(fmtDate(inicioBonus)) || diasFechoSet.has(fmtDate(inicioBonus))) {
-          inicioBonus.setDate(inicioBonus.getDate() + 1);
-        }
-        const dataBonusInicio = fmtDate(inicioBonus);
-        
-        // Pedido 1: Obrigatórias
-        await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: dataCorte, motivo: "Férias (Obrigatórias)", nota: notaFinal + " [auto-split: " + diasObrig + "d obrig.]", periodo: "dia", ficheiro: ficheiroData });
-        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": dataCorte, Motivo: "Férias (Obrigatórias)", "Dias Úteis": diasObrig, Período: "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: "" });
-        
-        // Pedido 2: Bónus
-        const resp2 = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: dataBonusInicio, dataFim: fD.fim, motivo: "Férias (Bónus)", nota: notaFinal + " [auto-split: " + diasBonus + "d bónus]", periodo: "dia", ficheiro: null });
-        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": dataBonusInicio, "Data Fim": fD.fim, Motivo: "Férias (Bónus)", "Dias Úteis": diasBonus, Período: "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: "" });
+        // Pedido 2: Bónus (dias que sobram)
+        await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: "Férias (Bónus)", nota: notaFinal + " [auto: " + diasBonus + "d bónus de " + dias + "d]", periodo: mesmoDia ? periodo : "dia", ficheiro: null });
+        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: "Férias (Bónus)", "Dias Úteis": diasBonus, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: "" });
         
       } else {
         // Pedido normal (tudo obrigatórias ou tudo bónus)
