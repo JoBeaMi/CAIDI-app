@@ -888,8 +888,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
 
             {/* Férias marcadas com mini-calendário */}
             {(() => {
-              const hojeStr = new Date().toISOString().slice(0, 10);
               const hoje = new Date();
+              const hojeStr = hoje.getFullYear() + "-" + String(hoje.getMonth() + 1).padStart(2, "0") + "-" + String(hoje.getDate()).padStart(2, "0");
               
               // Todas as férias aprovadas (passadas e futuras)
               const todasFerias = aus.filter(a => 
@@ -907,13 +907,21 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               const diasFecho = new Set();
               const diasPendentes = new Set();
               
+              // Helper para formatar data sem timezone issues
+              const fmtYMD = (d) => {
+                const yy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, "0");
+                const dd = String(d.getDate()).padStart(2, "0");
+                return yy + "-" + mm + "-" + dd;
+              };
+              
               // Férias aprovadas
               todasFerias.forEach(f => {
-                const d = new Date(f["Data Início"]);
-                const fim = new Date(f["Data Fim"]);
+                const d = new Date(f["Data Início"] + "T12:00:00");
+                const fim = new Date(f["Data Fim"] + "T12:00:00");
                 while (d <= fim) {
                   if (d.getDay() !== 0 && d.getDay() !== 6) {
-                    diasFerias.add(d.toISOString().slice(0, 10));
+                    diasFerias.add(fmtYMD(d));
                   }
                   d.setDate(d.getDate() + 1);
                 }
@@ -924,11 +932,11 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 (a.Motivo === "Férias (Obrigatórias)" || a.Motivo === "Férias (Bónus)") && 
                 a.Estado === "Pendente"
               ).forEach(f => {
-                const d = new Date(f["Data Início"]);
-                const fim = new Date(f["Data Fim"]);
+                const d = new Date(f["Data Início"] + "T12:00:00");
+                const fim = new Date(f["Data Fim"] + "T12:00:00");
                 while (d <= fim) {
                   if (d.getDay() !== 0 && d.getDay() !== 6) {
-                    diasPendentes.add(d.toISOString().slice(0, 10));
+                    diasPendentes.add(fmtYMD(d));
                   }
                   d.setDate(d.getDate() + 1);
                 }
@@ -936,11 +944,11 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               
               // Fecho CAIDI
               fechoCAIDI.forEach(f => {
-                const d = new Date(f["Data Início"]);
-                const fim = new Date(f["Data Fim"]);
+                const d = new Date(f["Data Início"] + "T12:00:00");
+                const fim = new Date(f["Data Fim"] + "T12:00:00");
                 while (d <= fim) {
                   if (d.getDay() !== 0 && d.getDay() !== 6) {
-                    diasFecho.add(d.toISOString().slice(0, 10));
+                    diasFecho.add(fmtYMD(d));
                   }
                   d.setDate(d.getDate() + 1);
                 }
@@ -968,8 +976,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               };
               
               const primeiroDiaSemana = (ym) => {
-                const [y, m] = ym.split("-");
-                const d = new Date(parseInt(y), parseInt(m) - 1, 1).getDay();
+                const [y, mm] = ym.split("-");
+                const d = new Date(parseInt(y), parseInt(mm) - 1, 1, 12, 0, 0).getDay();
                 return d === 0 ? 6 : d - 1; // Segunda = 0
               };
 
@@ -996,7 +1004,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                       // Dias do mês
                       for (let d = 1; d <= total; d++) {
                         const ds = ym + "-" + String(d).padStart(2, "0");
-                        const dow = new Date(ds).getDay();
+                        const dow = new Date(ds + "T12:00:00").getDay();
                         const isWe = dow === 0 || dow === 6;
                         const isFerias = diasFerias.has(ds);
                         const isFecho = diasFecho.has(ds);
@@ -1015,13 +1023,13 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                             ))}
                             {cells.map((c, i) => {
                               if (!c) return <div key={"e" + i} />;
-                              const bg = c.isFerias ? C.green : c.isPendente ? C.yellow : c.isFecho ? C.gray : c.isHoje ? C.teal : "transparent";
-                              const color = (c.isFerias || c.isFecho || c.isHoje) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
+                              const bg = c.isFerias ? C.green : c.isPendente ? C.yellow : c.isFecho ? C.gray : "transparent";
+                              const color = (c.isFerias || c.isFecho) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
                               const fw = (c.isFerias || c.isFecho || c.isPendente || c.isHoje) ? 800 : 400;
+                              const border = c.isHoje ? "2px solid " + C.dark : "2px solid transparent";
                               return (
-                                <div key={c.ds} style={{ fontSize: 10, fontWeight: fw, color, background: bg, borderRadius: 4, padding: "3px 0", lineHeight: 1.4, position: "relative" }}>
+                                <div key={c.ds} style={{ fontSize: 10, fontWeight: fw, color, background: bg, borderRadius: 4, padding: "2px 0", lineHeight: 1.4, border, position: "relative" }}>
                                   {c.d}
-                                  {c.isHoje && !c.isFerias && !c.isFecho && <div style={{ position: "absolute", bottom: 0, left: "50%", transform: "translateX(-50%)", width: 3, height: 3, borderRadius: "50%", background: C.teal }} />}
                                 </div>
                               );
                             })}
