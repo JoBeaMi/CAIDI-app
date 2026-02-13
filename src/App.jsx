@@ -310,7 +310,7 @@ function Login({ terapeutas, config, onLogin }) {
     }
     if (!sel) { setErr("Seleciona o teu nome"); return; }
     const t = terapeutas.find(x => x.ID === sel);
-    if (!t || String(t.PIN) !== pin) { setErr("PIN incorreto"); return; }
+    if (!t || String(t.PIN).toUpperCase().trim() !== pin.trim()) { setErr("Código incorreto"); return; }
     onLogin(sel, false);
   };
 
@@ -344,8 +344,8 @@ function Login({ terapeutas, config, onLogin }) {
                 </button>
               ))}
             </div>
-            <label style={{ fontSize: 11, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 6 }}>PIN</label>
-            <input type="password" maxLength={4} value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "")); setErr(""); }} placeholder="••••" style={{ width: "100%", padding: 13, borderRadius: 14, border: "2px solid " + C.grayLight, fontSize: 24, textAlign: "center", letterSpacing: 10, color: C.dark, background: C.grayBg, fontWeight: 800 }} />
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 6 }}>Código de acesso</label>
+            <input type="password" maxLength={10} value={pin} onChange={e => { setPin(e.target.value.toUpperCase()); setErr(""); }} placeholder="••••••" style={{ width: "100%", padding: 13, borderRadius: 14, border: "2px solid " + C.grayLight, fontSize: 20, textAlign: "center", letterSpacing: 6, color: C.dark, background: C.grayBg, fontWeight: 800 }} />
           </>
         ) : (
           <div style={{ textAlign: "center", padding: "12px 0" }}>
