@@ -193,10 +193,47 @@ function calc(t, efCount, aus, periodos, fecho, horarios) {
 
   const feriasPedidas = aus.filter(a => a.Motivo.includes("Férias") && (a.Estado === "Aprovado" || a.Estado === "Pendente"));
   const feriasCAIDI = contarDiasTrabAus(feriasPedidas, hor);
-  const fUPedidas = feriasPedidas.filter(a => a.Motivo === "Férias (Obrigatórias)").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+  const fUObrigPedidas = feriasPedidas.filter(a => a.Motivo === "Férias (Obrigatórias)");
+  const fUPedidosBruto = fUObrigPedidas.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+  
+  // Subtrair dias de fecho que caiam dentro de férias obrigatórias pedidas (evitar contagem dupla)
+  let fechoSobrepostoObrig = 0;
+  const fmtYMDcalc = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+  fUObrigPedidas.forEach(fp => {
+    fecho.forEach(fc => {
+      const fI = new Date(fc["Data Início"] + "T12:00:00"), fF = new Date(fc["Data Fim"] + "T12:00:00");
+      const pI = new Date(fp["Data Início"] + "T12:00:00"), pF = new Date(fp["Data Fim"] + "T12:00:00");
+      const oI = fI > pI ? fI : pI, oF = fF < pF ? fF : pF;
+      if (oI <= oF) {
+        const d = new Date(oI);
+        while (d <= oF) {
+          if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(fmtYMDcalc(d))) fechoSobrepostoObrig++;
+          d.setDate(d.getDate() + 1);
+        }
+      }
+    });
+  });
+  const fUPedidas = Math.max(fUPedidosBruto - fechoSobrepostoObrig, 0);
   const fU = fUPedidas + tF;
-  const bU = aus.filter(a => a.Motivo === "Férias (Bónus)" && (a.Estado === "Aprovado" || a.Estado === "Pendente")).reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-  const oR = Math.max(Number(t["Dias Férias"]) - fU, 0);
+  const bUBruto = aus.filter(a => a.Motivo === "Férias (Bónus)" && (a.Estado === "Aprovado" || a.Estado === "Pendente"));
+  // Subtrair fecho sobreposto com bónus também
+  let fechoSobrepostoBon = 0;
+  bUBruto.forEach(fp => {
+    fecho.forEach(fc => {
+      const fI = new Date(fc["Data Início"] + "T12:00:00"), fF = new Date(fc["Data Fim"] + "T12:00:00");
+      const pI = new Date(fp["Data Início"] + "T12:00:00"), pF = new Date(fp["Data Fim"] + "T12:00:00");
+      const oI = fI > pI ? fI : pI, oF = fF < pF ? fF : pF;
+      if (oI <= oF) {
+        const d = new Date(oI);
+        while (d <= oF) {
+          if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(fmtYMDcalc(d))) fechoSobrepostoBon++;
+          d.setDate(d.getDate() + 1);
+        }
+      }
+    });
+  });
+  const bU = Math.max(bUBruto.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0) - fechoSobrepostoBon, 0);
+  const oR = Math.max(Number(t["Dias Férias"]) - Math.min(fU, Number(t["Dias Férias"])), 0);
   const dBn = Number(t["Dias Bónus Ganhos"] || 0);
   const hSemanaisContrato = Number(t["Horas Semanais"]) || 40;
   const maxBonusPossivel = 15;
@@ -1551,8 +1588,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             <Card delay={0}>
               {[{ l: "🌴 Obrigatórias", u: m.fU, t: terap["Dias Férias"], r: m.oR, c: C.teal, f: m.tF }, { l: "🎁 Bónus", u: m.bU, t: m.dBn, r: m.bR, c: C.green, max: m.maxBonusPossivel }].map((f, i) => (
                 <div key={i} style={{ marginBottom: i === 0 ? 16 : 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{f.l}</span><span style={{ fontSize: 14, fontWeight: 800, color: f.c }}>{f.u}/{f.t}</span></div>
-                  <div style={{ height: 10, background: C.grayLight, borderRadius: 6, overflow: "hidden", display: "flex" }}>{f.f > 0 && <div style={{ width: (f.t > 0 ? (f.f / f.t) * 100 : 0) + "%", background: C.gray, height: "100%" }} />}<div style={{ width: (f.t > 0 ? ((f.u - (f.f||0)) / f.t) * 100 : 0) + "%", background: f.c, height: "100%" }} /></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{f.l}</span><span style={{ fontSize: 14, fontWeight: 800, color: f.c }}>{Math.min(f.u, f.t)}/{f.t}</span></div>
+                  <div style={{ height: 10, background: C.grayLight, borderRadius: 6, overflow: "hidden", display: "flex" }}>{f.f > 0 && <div style={{ width: Math.min(f.t > 0 ? (f.f / f.t) * 100 : 0, 100) + "%", background: C.gray, height: "100%" }} />}<div style={{ width: Math.min(f.t > 0 ? ((Math.min(f.u, f.t) - (f.f||0)) / f.t) * 100 : 0, 100) + "%", background: f.c, height: "100%" }} /></div>
                   <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 4 }}>{f.f ? "⬛ Fecho (" + f.f + "d) · " : ""}<span style={{ fontWeight: 700, color: C.green }}>Restam {f.r}d</span>{i === 1 && m.oR > 0 && <span style={{ color: C.red }}> · ⚠️ só após os 22</span>}{i === 1 && f.max && <span style={{ color: C.gray }}> · máx. {f.max}d</span>}</div>
                 </div>
               ))}
