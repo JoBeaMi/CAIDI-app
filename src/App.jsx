@@ -197,7 +197,10 @@ function calc(t, efCount, aus, periodos, fecho, horarios) {
   const fU = fUPedidas + tF;
   const bU = aus.filter(a => a.Motivo === "Férias (Bónus)" && (a.Estado === "Aprovado" || a.Estado === "Pendente")).reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const oR = Math.max(Number(t["Dias Férias"]) - fU, 0);
-  const dBn = Number(t["Dias Bónus Ganhos"] || 0), bR = Math.max(dBn - bU, 0);
+  const dBn = Number(t["Dias Bónus Ganhos"] || 0);
+  const hSemanaisContrato = Number(t["Horas Semanais"]) || 40;
+  const maxBonusPossivel = 15;
+  const bR = Math.max(dBn - bU, 0);
   const diasBonusCAIDI = diasTrab < 5 ? Math.round(dBn * diasTrab / 5) : dBn;
   const limiteCAIDI = diasFeriasCAIDI + diasBonusCAIDI;
   const usadosCAIDI = fechoCAIDI + feriasCAIDI;
@@ -209,11 +212,11 @@ function calc(t, efCount, aus, periodos, fecho, horarios) {
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado };
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -410,6 +413,8 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
   const submit = async () => {
     if (!fD.inicio || !fD.fim) return;
     if (isFerias && emLetivo && !justLetivo.trim()) { setErrMsg("Pedido em período letivo — indica o motivo da exceção."); return; }
+    // Bónus só pode ser gozado fora do letivo (Secção 1.2 regulamento)
+    if (isFerias && metrics.oR <= 0 && emLetivo) { setErrMsg("Os dias bónus só podem ser gozados fora do período letivo."); return; }
     if (esgotouCAIDI) { setErrMsg("Já usaste todos os dias de trabalho disponíveis no CAIDI. Contacta a gestão."); return; }
     if (ultrapassaCAIDI) { setErrMsg("Este pedido usa " + diasTrabPedido + " dias de trabalho mas só tens " + metrics.restamCAIDI + " disponíveis. Ajusta as datas."); return; }
     setSub(true); setErrMsg("");
@@ -818,7 +823,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: isADM ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
-              {[{ i: "🌴", v: m.oR, l: "férias", c: m.oR <= 3 ? C.red : C.teal }, { i: "🏥", v: m.dB, l: "baixa", c: m.dB > 0 ? C.purple : C.teal }, ...(!isADM ? [{ i: "🎓", v: m.dFO, l: "form.", c: C.orange }, { i: "🎁", v: m.dBn, l: "bónus", c: C.green }] : [{ i: "📋", v: m.dFJ + m.dFI, l: "faltas", c: m.dFI > 0 ? C.red : C.blue }])].map((x, idx) => (
+              {[{ i: "🌴", v: m.oR, l: "férias", c: m.oR <= 3 ? C.red : C.teal }, { i: "🏥", v: m.dB, l: "baixa", c: m.dB > 0 ? C.purple : C.teal }, ...(!isADM ? [{ i: "🎓", v: m.dFO, l: "form.", c: C.orange }, { i: "🎁", v: m.dBn + "/" + m.maxBonusPossivel, l: "bónus", c: C.green }] : [{ i: "📋", v: m.dFJ + m.dFI, l: "faltas", c: m.dFI > 0 ? C.red : C.blue }])].map((x, idx) => (
                 <Card key={idx} delay={0.1 + idx * 0.03} style={{ padding: 10, textAlign: "center" }}>
                   <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>{x.i}</div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: x.c, lineHeight: 1.3 }}>{x.v}</div>
@@ -991,20 +996,16 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 }
               });
               
-              // Meses a mostrar: mês atual + próximos meses com férias/fecho
-              const mesesComFerias = new Set();
-              [...diasFerias, ...diasFecho, ...diasPendentes].forEach(d => {
-                mesesComFerias.add(d.substring(0, 7)); // "2026-02"
-              });
-              // Sempre incluir mês atual
-              mesesComFerias.add(hojeStr.substring(0, 7));
-              
-              const mesesOrdenados = [...mesesComFerias].filter(ym => ym.startsWith(anoAtual)).sort().slice(0, 12);
+              // Mostrar sempre todos os 12 meses do ano civil
+              const mesesOrdenados = [];
+              for (let mm = 1; mm <= 12; mm++) {
+                mesesOrdenados.push(anoAtual + "-" + String(mm).padStart(2, "0"));
+              }
               
               const nomeMes = (ym) => {
                 const [y, m] = ym.split("-");
-                const nomes = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-                return nomes[parseInt(m) - 1] + " " + y;
+                const nomes = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+                return nomes[parseInt(m) - 1];
               };
               
               const diasNoMes = (ym) => {
@@ -1032,11 +1033,16 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                   </div>
                   
                   {/* Calendários */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     {mesesOrdenados.map(ym => {
                       const total = diasNoMes(ym);
                       const offset = primeiroDiaSemana(ym);
                       const cells = [];
+                      const mesAtual = hojeStr.substring(0, 7) === ym;
+                      const mesPassado = ym < hojeStr.substring(0, 7);
+                      
+                      // Verificar se este mês tem algo marcado
+                      let temAlgo = false;
                       
                       // Células vazias para offset
                       for (let i = 0; i < offset; i++) cells.push(null);
@@ -1050,16 +1056,17 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         const isPendente = diasPendentes.has(ds);
                         const isHoje = ds === hojeStr;
                         const isFeriadoNac = FERIADOS_2026.has(ds);
+                        if (isFerias || isFecho || isPendente || isFeriadoNac) temAlgo = true;
                         cells.push({ d, ds, isWe, isFerias, isFecho, isPendente, isHoje, isFeriadoNac });
                       }
                       
                       return (
-                        <div key={ym}>
-                          <div style={{ fontSize: 12, fontWeight: 800, color: C.dark, marginBottom: 4 }}>{nomeMes(ym)}</div>
+                        <div key={ym} style={{ opacity: mesPassado && !temAlgo ? 0.35 : 1 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: mesAtual ? C.teal : C.dark, marginBottom: 3 }}>{nomeMes(ym)}</div>
                           {/* Cabeçalho dias da semana */}
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, textAlign: "center" }}>
                             {["S", "T", "Q", "Q", "S", "S", "D"].map((dl, i) => (
-                              <div key={i} style={{ fontSize: 8, fontWeight: 700, color: i >= 5 ? C.grayLight : C.gray, padding: "2px 0" }}>{dl}</div>
+                              <div key={i} style={{ fontSize: 7, fontWeight: 700, color: i >= 5 ? C.grayLight : C.gray, padding: "1px 0" }}>{dl}</div>
                             ))}
                             {cells.map((c, i) => {
                               if (!c) return <div key={"e" + i} />;
@@ -1068,7 +1075,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                               const fw = (c.isFerias || c.isFecho || c.isPendente || c.isHoje || c.isFeriadoNac) ? 800 : 400;
                               const border = c.isHoje ? "2px solid " + C.dark : "2px solid transparent";
                               return (
-                                <div key={c.ds} style={{ fontSize: 10, fontWeight: fw, color, background: bg, borderRadius: 4, padding: "2px 0", lineHeight: 1.4, border, position: "relative" }}>
+                                <div key={c.ds} style={{ fontSize: 9, fontWeight: fw, color, background: bg, borderRadius: 3, padding: "1px 0", lineHeight: 1.5, border, position: "relative" }}>
                                   {c.d}
                                 </div>
                               );
@@ -1449,11 +1456,11 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>As tuas férias</h2>
             <Card delay={0}>
-              {[{ l: "🌴 Obrigatórias", u: m.fU, t: terap["Dias Férias"], r: m.oR, c: C.teal, f: m.tF }, { l: "🎁 Bónus", u: m.bU, t: m.dBn, r: m.bR, c: C.green }].map((f, i) => (
+              {[{ l: "🌴 Obrigatórias", u: m.fU, t: terap["Dias Férias"], r: m.oR, c: C.teal, f: m.tF }, { l: "🎁 Bónus", u: m.bU, t: m.dBn, r: m.bR, c: C.green, max: m.maxBonusPossivel }].map((f, i) => (
                 <div key={i} style={{ marginBottom: i === 0 ? 16 : 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{f.l}</span><span style={{ fontSize: 14, fontWeight: 800, color: f.c }}>{f.u}/{f.t}</span></div>
                   <div style={{ height: 10, background: C.grayLight, borderRadius: 6, overflow: "hidden", display: "flex" }}>{f.f > 0 && <div style={{ width: (f.t > 0 ? (f.f / f.t) * 100 : 0) + "%", background: C.gray, height: "100%" }} />}<div style={{ width: (f.t > 0 ? ((f.u - (f.f||0)) / f.t) * 100 : 0) + "%", background: f.c, height: "100%" }} /></div>
-                  <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 4 }}>{f.f ? "⬛ Fecho (" + f.f + "d) · " : ""}<span style={{ fontWeight: 700, color: C.green }}>Restam {f.r}d</span>{i === 1 && m.oR > 0 && <span style={{ color: C.red }}> · ⚠️ só após os 22</span>}</div>
+                  <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 4 }}>{f.f ? "⬛ Fecho (" + f.f + "d) · " : ""}<span style={{ fontWeight: 700, color: C.green }}>Restam {f.r}d</span>{i === 1 && m.oR > 0 && <span style={{ color: C.red }}> · ⚠️ só após os 22</span>}{i === 1 && f.max && <span style={{ color: C.gray }}> · máx. {f.max}d</span>}</div>
                 </div>
               ))}
             </Card>
