@@ -407,29 +407,117 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
     while (d <= fim) { if (d.getDay() >= 1 && d.getDay() <= 5 && trabalhaDia(metrics.hor, d.getDay())) count++; d.setDate(d.getDate() + 1); }
     return count;
   })();
+
+  // Calcular dias de fecho que caem no pedido (para info visual)
+  const fechoNoPedido = (() => {
+    if (!fD.inicio || !fD.fim || !data.fecho || !isFerias) return 0;
+    const fmtYMD = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+    let count = 0;
+    data.fecho.forEach(f => {
+      const fI = new Date(f["Data Início"] + "T12:00:00"), fF = new Date(f["Data Fim"] + "T12:00:00");
+      const pI = new Date(fD.inicio + "T12:00:00"), pF = new Date(fD.fim + "T12:00:00");
+      const oI = fI > pI ? fI : pI, oF = fF < pF ? fF : pF;
+      if (oI <= oF) { const d = new Date(oI); while (d <= oF) { if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(fmtYMD(d))) count++; d.setDate(d.getDate() + 1); } }
+    });
+    return count;
+  })();
   const ultrapassaCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI < diasTrabPedido;
   const esgotouCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI <= 0;
 
   const submit = async () => {
     if (!fD.inicio || !fD.fim) return;
     if (isFerias && emLetivo && !justLetivo.trim()) { setErrMsg("Pedido em período letivo — indica o motivo da exceção."); return; }
-    // Bónus só pode ser gozado fora do letivo (Secção 1.2 regulamento)
-    if (isFerias && metrics.oR <= 0 && emLetivo) { setErrMsg("Os dias bónus só podem ser gozados fora do período letivo."); return; }
+    // Nota: bónus em letivo não é bloqueado — fica sujeito a aprovação da gestão
     if (esgotouCAIDI) { setErrMsg("Já usaste todos os dias de trabalho disponíveis no CAIDI. Contacta a gestão."); return; }
     if (ultrapassaCAIDI) { setErrMsg("Este pedido usa " + diasTrabPedido + " dias de trabalho mas só tens " + metrics.restamCAIDI + " disponíveis. Ajusta as datas."); return; }
     setSub(true); setErrMsg("");
     let dias = contarDiasUteis(fD.inicio, fD.fim);
     if (mesmoDia && periodo !== "dia") dias = 0.5;
-    let mot = motivo;
-    if (isFerias) mot = metrics.oR > 0 ? "Férias (Obrigatórias)" : "Férias (Bónus)";
+    
+    // Subtrair dias de fecho CAIDI que caiam dentro do pedido de férias
+    let diasFechoNoPedido = 0;
+    if (isFerias && data.fecho) {
+      const fmtYMD = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+      data.fecho.forEach(f => {
+        const fI = new Date(f["Data Início"] + "T12:00:00");
+        const fF = new Date(f["Data Fim"] + "T12:00:00");
+        const pI = new Date(fD.inicio + "T12:00:00");
+        const pF = new Date(fD.fim + "T12:00:00");
+        // Interseção
+        const overlapI = fI > pI ? fI : pI;
+        const overlapF = fF < pF ? fF : pF;
+        if (overlapI <= overlapF) {
+          const d = new Date(overlapI);
+          while (d <= overlapF) {
+            if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(fmtYMD(d))) {
+              diasFechoNoPedido++;
+            }
+            d.setDate(d.getDate() + 1);
+          }
+        }
+      });
+      if (diasFechoNoPedido > 0) {
+        dias = Math.max(dias - diasFechoNoPedido, 0);
+      }
+    }
     const periodoLabel = mesmoDia && periodo !== "dia" ? (periodo === "manha" ? " (Manhã)" : " (Tarde)") : "";
     const notaFinal = (emLetivo && isFerias ? (fN ? fN + " | " : "") + "⚠️ LETIVO (" + emLetivo + "): " + justLetivo : fN) + periodoLabel;
     let ficheiroData = null;
     if (ficheiro) { try { ficheiroData = await fileToBase64(ficheiro); } catch {} }
+
     try {
-      const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal, periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
-      const linkReal = (resp && resp.ficheiro && resp.ficheiro.indexOf("http") === 0) ? resp.ficheiro : "";
-      onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
+      if (isFerias && metrics.oR > 0 && dias > metrics.oR) {
+        // Dividir: parte obrigatória + parte bónus
+        const diasObrig = metrics.oR;
+        const diasBonus = dias - diasObrig;
+        
+        // Construir set de dias de fecho para saltar
+        const diasFechoSet = new Set();
+        if (data.fecho) {
+          data.fecho.forEach(f => {
+            const d = new Date(f["Data Início"] + "T12:00:00");
+            const fim = new Date(f["Data Fim"] + "T12:00:00");
+            while (d <= fim) { diasFechoSet.add(d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0")); d.setDate(d.getDate() + 1); }
+          });
+        }
+        
+        // Encontrar a data de corte: contar diasObrig dias úteis (sem feriados nem fecho)
+        let corteDia = new Date(fD.inicio + "T12:00:00");
+        let contados = 0;
+        const fmtDate = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+        while (contados < diasObrig) {
+          const ds = fmtDate(corteDia);
+          if (corteDia.getDay() !== 0 && corteDia.getDay() !== 6 && !FERIADOS_2026.has(ds) && !diasFechoSet.has(ds)) {
+            contados++;
+          }
+          if (contados < diasObrig) corteDia.setDate(corteDia.getDate() + 1);
+        }
+        const dataCorte = fmtDate(corteDia);
+        
+        // Dia seguinte útil (sem feriado nem fecho) para início do bónus
+        let inicioBonus = new Date(corteDia);
+        inicioBonus.setDate(inicioBonus.getDate() + 1);
+        while (inicioBonus.getDay() === 0 || inicioBonus.getDay() === 6 || FERIADOS_2026.has(fmtDate(inicioBonus)) || diasFechoSet.has(fmtDate(inicioBonus))) {
+          inicioBonus.setDate(inicioBonus.getDate() + 1);
+        }
+        const dataBonusInicio = fmtDate(inicioBonus);
+        
+        // Pedido 1: Obrigatórias
+        await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: dataCorte, motivo: "Férias (Obrigatórias)", nota: notaFinal + " [auto-split: " + diasObrig + "d obrig.]", periodo: "dia", ficheiro: ficheiroData });
+        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": dataCorte, Motivo: "Férias (Obrigatórias)", "Dias Úteis": diasObrig, Período: "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: "" });
+        
+        // Pedido 2: Bónus
+        const resp2 = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: dataBonusInicio, dataFim: fD.fim, motivo: "Férias (Bónus)", nota: notaFinal + " [auto-split: " + diasBonus + "d bónus]", periodo: "dia", ficheiro: null });
+        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": dataBonusInicio, "Data Fim": fD.fim, Motivo: "Férias (Bónus)", "Dias Úteis": diasBonus, Período: "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: "" });
+        
+      } else {
+        // Pedido normal (tudo obrigatórias ou tudo bónus)
+        let mot = motivo;
+        if (isFerias) mot = metrics.oR > 0 ? "Férias (Obrigatórias)" : "Férias (Bónus)";
+        const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal, periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
+        const linkReal = (resp && resp.ficheiro && resp.ficheiro.indexOf("http") === 0) ? resp.ficheiro : "";
+        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
+      }
       setDone(true); setTimeout(onClose, 1800);
     } catch (err) { setErrMsg("Erro: " + err.message); }
     setSub(false);
@@ -522,6 +610,9 @@ function AbsenceForm({ type, terap, metrics, periodos, onSubmit, onClose }) {
               </div>
             )}
             {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR} dias obrigatórios</strong> por marcar</div>}
+            {isFerias && fechoNoPedido > 0 && (
+              <div style={{ background: C.grayBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.darkSoft, fontWeight: 600, marginBottom: 16, border: "1px solid " + C.grayLight }}>🔒 Este período inclui <strong>{fechoNoPedido} dia{fechoNoPedido > 1 ? "s" : ""} de fecho</strong> do CAIDI — já descontado{fechoNoPedido > 1 ? "s" : ""} automaticamente.</div>
+            )}
             {isFerias && metrics.diasTrab < 5 && fD.inicio && fD.fim && diasTrabPedido > 0 && (
               <div style={{ background: C.blueBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.blue, fontWeight: 600, marginBottom: 16 }}>📊 Este pedido usa <strong>{diasTrabPedido} dia{diasTrabPedido !== 1 ? "s" : ""} de trabalho</strong> no CAIDI. Tens <strong>{metrics.restamCAIDI}</strong> disponíve{metrics.restamCAIDI !== 1 ? "is" : "l"}.</div>
             )}
@@ -871,6 +962,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         ["Dias de férias (total)", diasFerias + "d", C.teal],
                         ["Férias usadas", m.fU + "d", C.darkSoft],
                         ["Férias por marcar", m.oR + "d", m.oR <= 3 ? C.red : C.green],
+                        ["Bónus ganhos", m.dBn + "d", C.green],
+                        ["Bónus por marcar", m.bR + "d", m.bR > 0 ? C.green : C.gray],
                         ["Dias de baixa", m.dB + "d", m.dB > 0 ? C.purple : C.gray],
                         ["Faltas justificadas", m.dFJ + "d", C.blue],
                         ["Faltas injustificadas", m.dFI + "d", m.dFI > 0 ? C.red : C.gray],
