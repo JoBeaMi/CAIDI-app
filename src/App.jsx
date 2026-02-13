@@ -44,11 +44,38 @@ function fileToBase64(file) {
   });
 }
 
+/* ═══════════════════════ FERIADOS NACIONAIS ═══════════════════════ */
+const FERIADOS_2026 = new Set([
+  "2026-01-01", // Ano Novo (Qui)
+  "2026-04-03", // Sexta-feira Santa (Sex)
+  "2026-04-05", // Páscoa (Dom)
+  "2026-04-25", // Dia da Liberdade (Sáb)
+  "2026-05-01", // Dia do Trabalhador (Sex)
+  "2026-06-04", // Corpo de Deus (Qui)
+  "2026-06-10", // Dia de Portugal (Qua)
+  "2026-08-15", // Assunção de N. Senhora (Sáb)
+  "2026-10-05", // Implantação da República (Seg)
+  "2026-11-01", // Todos os Santos (Dom)
+  "2026-12-01", // Restauração da Independência (Ter)
+  "2026-12-08", // Imaculada Conceição (Ter)
+  "2026-12-25", // Natal (Sex)
+]);
+
+function isFeriado(dateStr) {
+  return FERIADOS_2026.has(dateStr);
+}
+
 /* ═══════════════════════ CÁLCULOS ═══════════════════════ */
 function contarDiasUteis(i, f) {
   if (!i || !f) return 0;
   let c = 0; const d = new Date(i), e = new Date(f);
-  while (d <= e) { if (d.getDay() % 6 !== 0) c++; d.setDate(d.getDate() + 1); }
+  while (d <= e) { 
+    if (d.getDay() % 6 !== 0) {
+      const ds = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      if (!FERIADOS_2026.has(ds)) c++;
+    }
+    d.setDate(d.getDate() + 1); 
+  }
   return c;
 }
 
@@ -890,15 +917,28 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             {(() => {
               const hoje = new Date();
               const hojeStr = hoje.getFullYear() + "-" + String(hoje.getMonth() + 1).padStart(2, "0") + "-" + String(hoje.getDate()).padStart(2, "0");
+              const anoAtual = String(hoje.getFullYear());
+              const anoInicio = anoAtual + "-01-01";
+              const anoFim = anoAtual + "-12-31";
               
-              // Todas as férias aprovadas (passadas e futuras)
+              // Férias aprovadas no ano civil atual
               const todasFerias = aus.filter(a => 
                 (a.Motivo === "Férias (Obrigatórias)" || a.Motivo === "Férias (Bónus)") && 
-                a.Estado === "Aprovado"
+                a.Estado === "Aprovado" &&
+                a["Data Início"] <= anoFim && a["Data Fim"] >= anoInicio
               ).sort((a, b) => (a["Data Início"] || "").localeCompare(b["Data Início"] || ""));
               
-              // Também fecho CAIDI conta como férias
-              const fechoCAIDI = data.fecho || [];
+              // Fecho CAIDI no ano civil atual
+              const fechoCAIDI = (data.fecho || []).filter(f => 
+                f["Data Início"] <= anoFim && f["Data Fim"] >= anoInicio
+              );
+              
+              // Férias pendentes no ano civil atual
+              const feriasPendentes = aus.filter(a => 
+                (a.Motivo === "Férias (Obrigatórias)" || a.Motivo === "Férias (Bónus)") && 
+                a.Estado === "Pendente" &&
+                a["Data Início"] <= anoFim && a["Data Fim"] >= anoInicio
+              );
               
               if (todasFerias.length === 0 && fechoCAIDI.length === 0) return null;
               
@@ -928,10 +968,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               });
               
               // Férias pendentes
-              aus.filter(a => 
-                (a.Motivo === "Férias (Obrigatórias)" || a.Motivo === "Férias (Bónus)") && 
-                a.Estado === "Pendente"
-              ).forEach(f => {
+              feriasPendentes.forEach(f => {
                 const d = new Date(f["Data Início"] + "T12:00:00");
                 const fim = new Date(f["Data Fim"] + "T12:00:00");
                 while (d <= fim) {
@@ -962,7 +999,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               // Sempre incluir mês atual
               mesesComFerias.add(hojeStr.substring(0, 7));
               
-              const mesesOrdenados = [...mesesComFerias].sort().slice(0, 6); // max 6 meses
+              const mesesOrdenados = [...mesesComFerias].filter(ym => ym.startsWith(anoAtual)).sort().slice(0, 12);
               
               const nomeMes = (ym) => {
                 const [y, m] = ym.split("-");
@@ -983,13 +1020,15 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
 
               return (
                 <Card delay={0.25} style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📅 As tuas férias</div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.teal, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📅 As tuas férias · {anoAtual}</div>
                   
                   {/* Legenda */}
-                  <div style={{ display: "flex", gap: 12, marginBottom: 10, fontSize: 10 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10, fontSize: 10 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.green, display: "inline-block" }} /> Aprovadas</span>
                     <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.yellow, display: "inline-block" }} /> Pendentes</span>
                     <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.gray, display: "inline-block" }} /> Fecho</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: C.blue, display: "inline-block" }} /> Feriado</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 3, border: "2px solid " + C.dark, background: "transparent", display: "inline-block" }} /> Hoje</span>
                   </div>
                   
                   {/* Calendários */}
@@ -1010,7 +1049,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         const isFecho = diasFecho.has(ds);
                         const isPendente = diasPendentes.has(ds);
                         const isHoje = ds === hojeStr;
-                        cells.push({ d, ds, isWe, isFerias, isFecho, isPendente, isHoje });
+                        const isFeriadoNac = FERIADOS_2026.has(ds);
+                        cells.push({ d, ds, isWe, isFerias, isFecho, isPendente, isHoje, isFeriadoNac });
                       }
                       
                       return (
@@ -1023,9 +1063,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                             ))}
                             {cells.map((c, i) => {
                               if (!c) return <div key={"e" + i} />;
-                              const bg = c.isFerias ? C.green : c.isPendente ? C.yellow : c.isFecho ? C.gray : "transparent";
-                              const color = (c.isFerias || c.isFecho) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
-                              const fw = (c.isFerias || c.isFecho || c.isPendente || c.isHoje) ? 800 : 400;
+                              const bg = c.isFerias ? C.green : c.isPendente ? C.yellow : c.isFecho ? C.gray : c.isFeriadoNac ? C.blue : "transparent";
+                              const color = (c.isFerias || c.isFecho || c.isFeriadoNac) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
+                              const fw = (c.isFerias || c.isFecho || c.isPendente || c.isHoje || c.isFeriadoNac) ? 800 : 400;
                               const border = c.isHoje ? "2px solid " + C.dark : "2px solid transparent";
                               return (
                                 <div key={c.ds} style={{ fontSize: 10, fontWeight: fw, color, background: bg, borderRadius: 4, padding: "2px 0", lineHeight: 1.4, border, position: "relative" }}>
