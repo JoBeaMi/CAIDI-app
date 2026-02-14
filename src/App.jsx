@@ -130,8 +130,8 @@ function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbac
     d.setDate(d.getDate() + 1);
   }
   // Subtrair dias de baixa proporcionalmente (usando média)
-  const hLDMedia = dias > 0 ? somaHL / dias : fallbackHL / 5;
-  const hSMedia = dias > 0 ? somaHS / dias : fallbackHS / 5;
+  const hLDMedia = dias > 0 ? Math.round((somaHL / dias) * 1000) / 1000 : fallbackHL / 5;
+  const hSMedia = dias > 0 ? Math.round((somaHS / dias) * 1000) / 1000 : fallbackHS / 5;
   const mMin = Math.round(somaHL - (diasBaixa * hLDMedia));
   const mE3 = Math.round((somaHS - (diasBaixa * hSMedia)) * 1.05);
   return { mMin: Math.max(mMin, 0), mE3: Math.max(mE3, 0), hLDMedia, hSMedia };
@@ -1385,8 +1385,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             <Card delay={0.17} style={{ marginTop: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>📊 O teu ritmo real</div>
               {(() => {
-                const hLetivas = mq.hLD * 5; // média ponderada do quadrimestre
-                const hSemanais = mq.hSem * 5;
+                const hLetivas = Math.round(mq.hLD * 5 * 100) / 100; // média ponderada do quadrimestre
+                const hSemanais = Math.round(mq.hSem * 5 * 100) / 100;
                 const hIndiretas = hSemanais - hLetivas;
                 // Usar dias LETIVOS decorridos (descontando baixa) — não dias do quadrimestre
                 const diasLetivosTrab = Math.max((mq.dLetivoHoje || mq.dQuadHoje) - mq.dB, 1);
