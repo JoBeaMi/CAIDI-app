@@ -312,7 +312,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
   const hSemanaisContrato = Number(t["Horas Semanais"]) || 40;
   const maxBonusPossivel = 15;
   const bR = Math.max(dBn - bU, 0);
-  const diasBonusCAIDI = diasTrab < 5 ? Math.round(dBn * diasTrab / 5) : dBn;
+  const diasBonusCAIDI = dBn;
   const limiteCAIDI = diasFeriasCAIDI + diasBonusCAIDI;
   const usadosCAIDI = fechoCAIDI + feriasCAIDI;
   const restamCAIDI = Math.max(limiteCAIDI - usadosCAIDI, 0);
@@ -1601,11 +1601,16 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>As tuas férias</h2>
             <Card delay={0}>
-              {[{ l: "🌴 Obrigatórias", u: m.fU, t: terap["Dias Férias"], r: m.oR, c: C.teal, f: m.tF }, { l: "🎁 Bónus", u: m.bU, t: m.dBn, r: m.bR, c: C.green, max: m.maxBonusPossivel }].map((f, i) => (
+              {[{ l: "🌴 Obrigatórias", u: m.diasTrab < 5 ? Math.round(m.fU * m.diasTrab / 5) : m.fU, t: m.diasTrab < 5 ? m.diasFeriasCAIDI : Number(terap["Dias Férias"]), r: m.diasTrab < 5 ? Math.max(m.diasFeriasCAIDI - Math.round(m.fU * m.diasTrab / 5), 0) : m.oR, c: C.teal, f: m.diasTrab < 5 ? Math.round(m.tF * m.diasTrab / 5) : m.tF }, { l: "🎁 Bónus", u: m.bU, t: m.dBn, r: m.bR, c: C.green, max: m.maxBonusPossivel }].map((f, i) => (
                 <div key={i} style={{ marginBottom: i === 0 ? 16 : 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{f.l}</span><span style={{ fontSize: 14, fontWeight: 800, color: f.c }}>{Math.min(f.u, f.t)}/{f.t}</span></div>
                   <div style={{ height: 10, background: C.grayLight, borderRadius: 6, overflow: "hidden", display: "flex" }}>{f.f > 0 && <div style={{ width: Math.min(f.t > 0 ? (f.f / f.t) * 100 : 0, 100) + "%", background: C.gray, height: "100%" }} />}<div style={{ width: Math.min(f.t > 0 ? ((Math.min(f.u, f.t) - (f.f||0)) / f.t) * 100 : 0, 100) + "%", background: f.c, height: "100%" }} /></div>
                   <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 4 }}>{f.f ? "⬛ Fecho (" + f.f + "d) · " : ""}<span style={{ fontWeight: 700, color: C.green }}>Restam {f.r}d</span>{i === 1 && m.oR > 0 && <span style={{ color: C.red }}> · ⚠️ só após os 22</span>}{i === 1 && f.max && <span style={{ color: C.gray }}> · máx. {f.max}d</span>}</div>
+                  {i === 0 && m.diasTrab < 5 && (
+                    <div style={{ fontSize: 10, color: C.blue, fontWeight: 600, marginTop: 4, background: C.blueBg, padding: "4px 8px", borderRadius: 6 }}>
+                      ℹ️ Trabalhas {m.diasTrab} dias/semana — os teus 22 dias correspondem a <strong>{m.diasFeriasCAIDI} dias de trabalho</strong> no CAIDI
+                    </div>
+                  )}
                 </div>
               ))}
             </Card>
