@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 /* ═══════════════════════════════════════════════════════════════
    CONFIGURAÇÃO — Cola aqui o URL do Google Apps Script
    ═══════════════════════════════════════════════════════════════ */
-const API_URL = "https://script.google.com/macros/s/AKfycbxTBG-Q9sbIyYWx05QZkl6BoFscIWINdJksYofOozrTqZ-iHI7zQ_gkIIVTbBItahkwfQ/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycby2cUNyXA4DfuYCq-NSfef3aZizfjMpSO1rIkCQzVKs0ROanXY_xSoOFgYGFjHQoIkV/exec";
 /* ⚠️  Após atualizar o Apps Script, faz novo deploy e cola o URL atualizado acima */
 
 /* ═══════════════════════ PALETA CAIDI ═══════════════════════ */
@@ -1050,15 +1050,15 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             {!isADM && (
             <div style={{ marginTop: 8 }}>
               {m.ef < m.mBonus ? (
-                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.yellowBg + ", " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>Faltam-te {m.mBonus - m.ef} apoios para o dia bónus!</div><div style={{ fontSize: 12, color: C.darkSoft }}>85% do objetivo = +1 dia de férias</div></div></div></Card>
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.yellowBg + ", " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🌴</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>Faltam-te {m.mBonus - m.ef} apoios para o Dia Extra!</div><div style={{ fontSize: 12, color: C.darkSoft }}>85% do objetivo = +1 dia de férias</div></div></div></Card>
               ) : m.ef < m.mMin ? (
-                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎁</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Dia bónus garantido! ✅</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mMin - m.ef} para o objetivo mínimo</div></div></div></Card>
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🌴</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>Dia Extra garantido! ✅</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mMin - m.ef} para o objetivo mínimo</div></div></div></Card>
               ) : m.ef < m.mE2 ? (
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>🎯</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.tealDark }}>Objetivo cumprido! Faltam {m.mE2 - m.ef} para os 5€/apoio</div><div style={{ fontSize: 12, color: C.darkSoft }}>Cada apoio extra a partir daí = 5€</div></div></div></Card>
               ) : m.ef < m.mE3 ? (
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")", border: "1px solid #b2f5ea" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>💰</span><div><div style={{ fontSize: 14, fontWeight: 800, color: C.green }}>A ganhar 5€/apoio! Já tens +{m.eurosTotal}€</div><div style={{ fontSize: 12, color: C.darkSoft }}>Faltam {m.mE3 - m.ef} para os 10€/apoio</div></div></div></Card>
               ) : (
-                <Card delay={0.22} style={{ background: "linear-gradient(135deg, #FFF9E6, " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>💎</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>A ganhar 10€/apoio! Já tens +{m.eurosTotal}€</div><div style={{ fontSize: 12, color: C.darkSoft }}>Máximo atingido — continua!</div></div></div></Card>
+                <Card delay={0.22} style={{ background: "linear-gradient(135deg, #FFF9E6, " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>⭐</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>A ganhar 10€/apoio! Já tens +{m.eurosTotal}€</div><div style={{ fontSize: 12, color: C.darkSoft }}>Máximo atingido — continua!</div></div></div></Card>
               )}
             </div>
             )}
@@ -1460,7 +1460,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                       ))}
                     </div>
 
-                    {/* Mensagem pessoal por escalão */}
+                    {/* Mensagem pessoal por prémio */}
                     <div style={{ marginTop: 10 }}>
                       {(() => {
                         const nome = terap.Nome.split(" ")[0];
@@ -1472,9 +1472,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         
                         // Badges
                         const badges = [];
-                        if (acimaE3) badges.push({ icon: "💎", label: "Top Performer", desc: "Acima do escalão máximo!" });
-                        else if (acimaE2) badges.push({ icon: "💰", label: "Escalão 2", desc: "5€ por apoio extra" });
-                        if (acimaObjetivo && mq.ef >= mq.mBonus) badges.push({ icon: "🎁", label: "Dia bónus garantido", desc: "+1 dia de férias" });
+                        if (acimaE3) badges.push({ icon: "💎", label: "10€ por apoio", desc: "Patamar máximo!" });
+                        else if (acimaE2) badges.push({ icon: "💰", label: "5€ por apoio", desc: "Cada apoio extra = 5€" });
+                        if (acimaObjetivo && mq.ef >= mq.mBonus) badges.push({ icon: "🌴", label: "Dia Extra garantido", desc: "+1 dia de férias" });
                         if (aph >= 1.2) badges.push({ icon: "⚡", label: "Alta eficiência", desc: aph + " apoios/hora direta" });
 
                         // 🔴 CRÍTICO < 0.5
@@ -1571,10 +1571,10 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
             <Card delay={0.2} style={{ marginTop: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.darkSoft, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>⭐ Objetivos</div>
               {[
-                { l: "Dia bónus de férias", desc: "85% do objetivo", v: mq.mBonus, icon: "🎁", active: mq.ef >= mq.mBonus, color: C.green },
-                { l: "Objetivo mínimo", desc: "100%", v: mq.mMin, icon: "🎯", active: mq.ef >= mq.mMin, color: C.teal },
-                { l: "5€ por apoio extra", desc: "Objetivo + 5%", v: mq.mE2, icon: "💰", active: mq.ef >= mq.mE2, color: C.green },
-                { l: "10€ por apoio extra", desc: "H. semanais + 5%", v: mq.mE3, icon: "💎", active: mq.ef >= mq.mE3, color: "#E17055" },
+                { l: "🌴 Dia Extra", desc: "85% do objetivo", v: mq.mBonus, icon: "🌴", active: mq.ef >= mq.mBonus, color: C.green },
+                { l: "🎯 Objetivo", desc: "100%", v: mq.mMin, icon: "🎯", active: mq.ef >= mq.mMin, color: C.teal },
+                { l: "💰 5€ por apoio", desc: "Objetivo + 5%", v: mq.mE2, icon: "💰", active: mq.ef >= mq.mE2, color: C.green },
+                { l: "⭐ 10€ por apoio", desc: "H. semanais + 5%", v: mq.mE3, icon: "⭐", active: mq.ef >= mq.mE3, color: "#E17055" },
               ].map((e, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 10, marginBottom: 4, background: e.active ? C.greenBg : C.grayBg, border: "1px solid " + (e.active ? "#b2f5ea" : C.grayLight) }}>
                   <span style={{ fontSize: 18 }}>{e.icon}</span>
@@ -2091,8 +2091,8 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     <div style={{ fontSize: 11, color: C.darkSoft }}>{!tIsADM ? m2.ef + "/" + m2.mMin + " · " : ""}{t["Área"]}</div>
                     {!tIsADM && <div style={{ height: 4, background: C.grayLight, borderRadius: 2, marginTop: 4, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(m2.pM, 100) + "%", background: m2.sc, borderRadius: 2 }} /></div>}
                     {!tIsADM && m2.eurosTotal > 0 && <div style={{ fontSize: 10, color: "#E17055", fontWeight: 700, marginTop: 3 }}>💶 +{m2.eurosTotal}€</div>}
-                    {!tIsADM && m2.ef >= m2.mE3 && <div style={{ fontSize: 10, color: "#E17055", fontWeight: 800, marginTop: 2 }}>💎 Top Performer</div>}
-                    {!tIsADM && m2.ef >= m2.mE2 && m2.ef < m2.mE3 && <div style={{ fontSize: 10, color: "#d4a017", fontWeight: 700, marginTop: 2 }}>⭐ Escalão 2</div>}
+                    {!tIsADM && m2.ef >= m2.mE3 && <div style={{ fontSize: 10, color: "#E17055", fontWeight: 800, marginTop: 2 }}>💎 10€ por apoio</div>}
+                    {!tIsADM && m2.ef >= m2.mE2 && m2.ef < m2.mE3 && <div style={{ fontSize: 10, color: "#d4a017", fontWeight: 700, marginTop: 2 }}>⭐ 5€ por apoio</div>}
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
                     {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/sem → " + m2.limiteCAIDI + " dias CAIDI"}>📋 <span style={{ fontWeight: 800, color: m2.restamCAIDI <= 2 ? C.red : C.blue }}>{m2.restamCAIDI}</span><span style={{ color: C.gray }}>/{m2.limiteCAIDI}</span></div>}
