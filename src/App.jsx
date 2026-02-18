@@ -344,6 +344,7 @@ const EST = {
   Aprovado: { bg: C.greenBg, c: C.green, icon: "✓", l: "Aprovado" },
   Pendente: { bg: C.yellowBg, c: "#E17055", icon: "⏳", l: "Pendente" },
   Rejeitado: { bg: C.redBg, c: C.red, icon: "✕", l: "Rejeitado" },
+  Cancelado: { bg: C.grayBg, c: C.gray, icon: "⊘", l: "Cancelado" },
 };
 
 /* ═══════════════════════ UI COMPONENTS ═══════════════════════ */
@@ -472,6 +473,73 @@ function Login({ terapeutas, config, onLogin }) {
         <div style={{ marginTop: 18 }}><Btn onClick={go}>Entrar</Btn></div>
       </div>
       <div style={{ color: "rgba(255,255,255,0.25)", fontSize: 11, marginTop: 22, zIndex: 1 }}>🟢 ligado ao Google Sheets</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════ EDIT PEDIDO FORM ═══════════════════════ */
+function EditPedidoForm({ pedido, onSave, onClose }) {
+  const [fD, setFD] = useState({ inicio: pedido["Data Início"], fim: pedido["Data Fim"] });
+  const [nota, setNota] = useState(pedido.Observações || "");
+  const [sub, setSub] = useState(false);
+  const [done, setDone] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+  const mi = motivoInfo(pedido.Motivo);
+  const wasApproved = pedido.Estado === "Aprovado";
+
+  const submit = async () => {
+    if (!fD.inicio || !fD.fim) return;
+    setSub(true); setErrMsg("");
+    try {
+      await onSave(pedido, { inicio: fD.inicio, fim: fD.fim, nota });
+      setDone(true);
+      setTimeout(onClose, 1500);
+    } catch (err) {
+      setErrMsg("Erro ao guardar: " + err.message);
+    }
+    setSub(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(45,52,54,0.5)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: C.white, borderRadius: "26px 26px 0 0", padding: "24px 20px 32px", width: "100%", maxWidth: 420, animation: "slideUp 0.3s ease", maxHeight: "90vh", overflowY: "auto" }}>
+        {done ? (
+          <div style={{ textAlign: "center", padding: "24px 0", animation: "pop 0.4s ease" }}><div style={{ fontSize: 48 }}>✅</div><div style={{ fontSize: 17, fontWeight: 800, color: C.green, marginTop: 10 }}>Pedido atualizado!</div></div>
+        ) : (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 900, color: C.dark, margin: 0 }}>✏️ Editar pedido</h3>
+              <button onClick={onClose} style={{ background: C.grayBg, border: "none", borderRadius: "50%", width: 32, height: 32, fontSize: 14, cursor: "pointer", color: C.darkSoft }}>✕</button>
+            </div>
+
+            <div style={{ background: mi.color + "15", padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 700, color: mi.color, marginBottom: 14 }}>
+              {mi.icon} {mi.label}
+            </div>
+
+            {wasApproved && (
+              <div style={{ background: C.yellowBg, padding: "10px 12px", borderRadius: 12, fontSize: 12, color: "#E17055", fontWeight: 600, marginBottom: 14 }}>
+                ⚠️ Este pedido já estava aprovado. Ao editar, volta a ficar <strong>pendente</strong> para re-aprovação.
+              </div>
+            )}
+
+            {["inicio", "fim"].map(k => (
+              <div key={k} style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>{k === "inicio" ? "De" : "Até"}</label>
+                <input type="date" value={fD[k]} onChange={e => setFD(d => ({ ...d, [k]: e.target.value }))} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }} />
+              </div>
+            ))}
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Nota</label>
+              <input type="text" value={nota} onChange={e => setNota(e.target.value)} placeholder="Opcional" style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 14, color: C.dark, background: C.grayBg }} />
+            </div>
+
+            {errMsg && <div style={{ background: C.redBg, color: C.red, padding: "8px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, marginBottom: 12 }}>⚠️ {errMsg}</div>}
+
+            <Btn onClick={submit} disabled={sub}>{sub ? "A guardar..." : "Guardar alterações"}</Btn>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -691,9 +759,11 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
 }
 
 /* ═══════════════════════ THERAPIST VIEW ═══════════════════════ */
-function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
+function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEditAusencia }) {
   const [tab, setTab] = useState("inicio");
   const [showForm, setShowForm] = useState(null);
+  const [editPedido, setEditPedido] = useState(null);
+  const [cancelando, setCancelando] = useState(null);
   const [quadIdx, setQuadIdx] = useState(null); // null = atual
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
   const ap = data.resumoApoios && data.resumoApoios[String(terap.ID)] ? data.resumoApoios[String(terap.ID)].ef : 0;
@@ -702,6 +772,24 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const pend = aus.filter(p => p.Estado === "Pendente").length;
   const handleSubmit = (n) => { onAddAusencia(n); onRefresh(); };
+  const handleCancel = async (pedido) => {
+    if (!confirm("Tens a certeza que queres cancelar este pedido?")) return;
+    setCancelando(pedido._linha);
+    try {
+      await apiPost({ action: "cancelarPedido", linha: pedido._linha });
+      onEditAusencia(pedido._linha, { Estado: "Cancelado" });
+      onRefresh();
+    } catch (err) { alert("Erro: " + err.message); }
+    setCancelando(null);
+  };
+  const handleEdit = async (pedido, novosDados) => {
+    try {
+      await apiPost({ action: "editarPedido", linha: pedido._linha, dataInicio: novosDados.inicio, dataFim: novosDados.fim, nota: novosDados.nota });
+      const dias = contarDiasUteis(novosDados.inicio, novosDados.fim);
+      onEditAusencia(pedido._linha, { "Data Início": novosDados.inicio, "Data Fim": novosDados.fim, "Dias Úteis": dias, Observações: novosDados.nota, Estado: "Pendente" });
+      onRefresh();
+    } catch (err) { alert("Erro: " + err.message); throw err; }
+  };
   const isADM = terap["Área"] === "ADM";
   const tabs = [{ id: "inicio", icon: "🏠", l: "Início" }, ...(!isADM ? [{ id: "objetivo", icon: "🎯", l: "Objetivo" }] : []), { id: "ferias", icon: "🌴", l: "Férias" }, { id: "ausencias", icon: "📑", l: "Ausências" }, { id: "pedidos", icon: "📋", l: "Pedidos" }];
   const q = m.quad;
@@ -1373,7 +1461,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         const badges = [];
                         if (acimaE3) badges.push({ icon: "💎", label: "10€ por apoio", desc: "Patamar máximo!" });
                         else if (acimaE2) badges.push({ icon: "💰", label: "5€ por apoio", desc: "Cada apoio extra = 5€" });
-                        if (acimaObjetivo && mq.ef >= mq.mBonus) badges.push({ icon: "🌴", label: "Dia extra garantido", desc: "+1 dia de férias" });
+                        if (acimaObjetivo && mq.ef >= mq.mBonus) badges.push({ icon: "🌴", label: "Dia Extra garantido", desc: "+1 dia de férias" });
                         if (aph >= 1.2) badges.push({ icon: "⚡", label: "Alta eficiência", desc: aph + " apoios/hora direta" });
 
                         // 🔴 CRÍTICO < 0.5
@@ -1583,8 +1671,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>Todos os pedidos</h2>
             {todosPedidos.length === 0 ? <Card><div style={{ textAlign: "center", padding: 20, color: C.gray }}><div style={{ fontSize: 36 }}>📋</div><div style={{ fontSize: 14, marginTop: 6 }}>Sem pedidos</div></div></Card>
-            : todosPedidos.map((p, i) => { const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; return (
-              <Card key={i} delay={i * 0.03} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
+            : todosPedidos.map((p, i) => { const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; const hojeStr = new Date().toISOString().slice(0, 10); const passado = p["Data Início"] <= hojeStr; const canEdit = !passado && p.Estado === "Pendente"; const canCancel = !passado && (p.Estado === "Pendente" || p.Estado === "Aprovado"); return (
+              <Card key={i} delay={i * 0.03} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px", opacity: p.Estado === "Cancelado" ? 0.5 : 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div><div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? " → " + fmtD(p["Data Fim"]) : ""}</div><div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{mi.icon} {mi.short} · {fmtDias(p["Dias Úteis"], p["Período"])}</div></div>
                   <span style={{ background: e.bg, color: e.c, padding: "3px 9px", borderRadius: 8, fontSize: 11, fontWeight: 700 }}>{e.icon} {e.l}</span>
@@ -1592,6 +1680,15 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                 {p.Observações && <div style={{ fontSize: 12, color: C.darkSoft, fontStyle: "italic", marginTop: 4 }}>"{p.Observações}"</div>}
                 {p["Resposta Gestão"] && <div style={{ fontSize: 12, marginTop: 4, padding: "6px 10px", borderRadius: 8, background: p.Estado === "Rejeitado" ? C.redBg : C.greenBg, color: p.Estado === "Rejeitado" ? C.red : C.green, fontWeight: 600 }}>💬 Gestão: {p["Resposta Gestão"]}</div>}
                 <FileBadge url={p.Ficheiro} />
+                {(canEdit || canCancel) && (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    {canEdit && <button onClick={() => setEditPedido(p)} style={{ flex: 1, padding: "7px 0", borderRadius: 10, border: "1.5px solid " + C.grayLight, background: C.white, fontSize: 11, fontWeight: 700, color: C.dark, cursor: "pointer" }}>✏️ Editar</button>}
+                    {canCancel && <button onClick={() => handleCancel(p)} disabled={cancelando === p._linha} style={{ flex: 1, padding: "7px 0", borderRadius: 10, border: "1.5px solid " + C.grayLight, background: C.white, fontSize: 11, fontWeight: 700, color: C.red, cursor: cancelando === p._linha ? "default" : "pointer", opacity: cancelando === p._linha ? 0.5 : 1 }}>{cancelando === p._linha ? "..." : "🗑 Cancelar"}</button>}
+                  </div>
+                )}
+                {passado && (p.Estado === "Pendente" || p.Estado === "Aprovado") && (
+                  <div style={{ fontSize: 10, color: C.gray, marginTop: 6, fontStyle: "italic" }}>Data já passou. Para alterar, contacta a gestão.</div>
+                )}
               </Card>
             ); })}
           </div>
@@ -1599,6 +1696,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
       </div>
 
       {showForm && <AbsenceForm type={showForm} terap={terap} metrics={m} periodos={data.periodos} fecho={data.fecho} onSubmit={handleSubmit} onClose={() => setShowForm(null)} />}
+      {editPedido && <EditPedidoForm pedido={editPedido} onSave={handleEdit} onClose={() => setEditPedido(null)} />}
 
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 420, background: C.white, borderTop: "1px solid " + C.grayLight, display: "flex", justifyContent: "space-around", padding: "6px 0 12px", boxShadow: "0 -4px 20px rgba(0,0,0,0.04)" }}>
         {tabs.map(tb => (
@@ -2284,6 +2382,7 @@ function AppInner() {
   const refresh = () => fetchData();
   const addAus = (n) => setData(p => ({ ...p, ausencias: [...p.ausencias, { ...n, _linha: p.ausencias.length + 2 }] }));
   const updEst = (ln, est, obs) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, Estado: est, "Resposta Gestão": obs || "" } : a) }));
+  const editAus = (ln, changes) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, ...changes } : a) }));
 
   if (loading) return <Loading />;
   if (error || !data) return <ErrorScreen error={error || "Sem dados"} onRetry={fetchData} />;
@@ -2291,7 +2390,7 @@ function AppInner() {
   if (user.isAdmin) return <AdminView data={data} onLogout={() => setUser(null)} onRefresh={refresh} onUpdateEstado={updEst} />;
   const t = data.terapeutas.find(x => x.ID === user.id);
   if (!t) { setUser(null); return null; }
-  return <TherapistView data={data} terap={t} onLogout={() => setUser(null)} onRefresh={refresh} onAddAusencia={addAus} />;
+  return <TherapistView data={data} terap={t} onLogout={() => setUser(null)} onRefresh={refresh} onAddAusencia={addAus} onEditAusencia={editAus} />;
 }
 
 export default function App() {
