@@ -1963,6 +1963,74 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#FFF0F3", border: "1px solid #f5c6c0", verticalAlign: "middle", marginRight: 3 }} /> Letivo</span>
               <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#F0FFF4", border: "1px solid #b2f5ea", verticalAlign: "middle", marginRight: 3 }} /> Não letivo</span>
             </div>
+
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+              {[
+                { label: "🌴 Exportar mapa de férias", filename: "Mapa_Ferias", filtro: "ferias" },
+                { label: "📋 Exportar mapa de ausências", filename: "Mapa_Ausencias", filtro: "todas" },
+              ].map((exp, ei) => (
+              <Btn key={ei} onClick={async () => {
+                if (!window.XLSX) {
+                  const script = document.createElement("script");
+                  script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+                  document.head.appendChild(script);
+                  await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+                }
+                const XLSX = window.XLSX;
+                const soFerias = exp.filtro === "ferias";
+                
+                const header = ["Terapeuta", ...diasMes.map(d => d.getDate() + "/" + (mesNum + 1)), "Total"];
+                const rows = [header];
+                const nDia = ["", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+                rows.push(["", ...diasMes.map(d => nDia[d.getDay()] || ""), ""]);
+                
+                data.terapeutas.forEach(t => {
+                  const row = [t.Nome];
+                  let totalDias = 0;
+                  diasMesStr.forEach(dStr => {
+                    const fecho = fechoDia(dStr);
+                    if (fecho) {
+                      if (soFerias) {
+                        // Fecho conta como férias
+                        const tHor = getHorario(data.horarios, t.ID);
+                        const dObj = new Date(dStr);
+                        if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
+                        row.push("FECHO"); totalDias++; return;
+                      }
+                      row.push("FECHO"); return;
+                    }
+                    const tHor = getHorario(data.horarios, t.ID);
+                    const dObj = new Date(dStr);
+                    if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
+                    const aus = terapAusenteDia(t.ID, dStr);
+                    if (aus) {
+                      const isFerias = aus.Motivo.includes("Férias");
+                      const isBaixaFalta = !isFerias;
+                      if (soFerias && isBaixaFalta) { row.push(""); return; }
+                      totalDias++;
+                      if (aus.Motivo === "Férias (Bónus)") row.push("BÓNUS");
+                      else if (isFerias) row.push("FÉRIAS");
+                      else if (aus.Motivo === "Baixa Médica") row.push("BAIXA");
+                      else if (aus.Motivo === "Falta Justificada") row.push("F.JUST");
+                      else if (aus.Motivo === "Falta Injustificada") row.push("F.INJ");
+                      else if (aus.Motivo === "Formação") row.push("FORM");
+                      else row.push(aus.Motivo);
+                      return;
+                    }
+                    row.push("");
+                  });
+                  row.push(totalDias);
+                  rows.push(row);
+                });
+                
+                const ws = XLSX.utils.aoa_to_sheet(rows);
+                ws["!cols"] = [{ wch: 25 }, ...diasMes.map(() => ({ wch: 7 })), { wch: 6 }];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, mesNomes[mesNum] + " " + mesAno);
+                XLSX.writeFile(wb, exp.filename + "_" + mesNomes[mesNum] + "_" + mesAno + ".xlsx");
+              }} variant="secondary" style={{ fontSize: 12 }}>{exp.label} · {mesNomes[mesNum]}</Btn>
+              ))}
+            </div>
           </div>
         )}
 
