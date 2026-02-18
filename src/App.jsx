@@ -795,35 +795,83 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
 }
 
 /* ═══════════════════════ COMPENSATION FORM ═══════════════════════ */
-function CompensationForm({ pedido, onSubmit, onClose }) {
-  const [perdidos, setPerdidos] = useState("");
-  const [compensados, setCompensados] = useState("");
-  const [detalhe, setDetalhe] = useState("");
-  const [sub, setSub] = useState(false);
+function CompensationForm({ pedido, existingComps, onSubmit, onClose, onRefresh }) {
+  const [perdidos, setPerdidos] = useState(() => {
+    // Se já tem compensações, usar o valor existente
+    const existing = (existingComps || []).filter(c => String(c.Linha_Ausencia) === String(pedido._linha));
+    return existing.length > 0 && existing[0]["Apoios Perdidos"] ? String(existing[0]["Apoios Perdidos"]) : "";
+  });
+  const [crianca, setCrianca] = useState("");
+  const [dia, setDia] = useState("");
+  const [hora, setHora] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [errMsg, setErrMsg] = useState("");
+  const [removendo, setRemovendo] = useState(null);
 
-  const pctCalc = perdidos > 0 && compensados > 0 ? Math.min(Math.round((compensados / perdidos) * 100), 100) : 0;
+  // Crianças já registadas para esta ausência
+  const minhas = (existingComps || []).filter(c => String(c.Linha_Ausencia) === String(pedido._linha));
+  const nComp = minhas.length;
+  const pctCalc = perdidos > 0 && nComp > 0 ? Math.min(Math.round((nComp / Number(perdidos)) * 100), 100) : 0;
+  const estado = minhas.length > 0 ? minhas[0].Estado : null;
 
-  const submit = async () => {
-    if (!perdidos || Number(perdidos) <= 0) { setErrMsg("Indica quantos apoios perdeste"); return; }
-    if (!compensados || Number(compensados) <= 0) { setErrMsg("Indica quantos apoios compensaste"); return; }
-    if (!detalhe.trim() || detalhe.trim().length < 10) { setErrMsg("Descreve que crianças reagendaste e quando (mínimo 10 caracteres)"); return; }
-    setSub(true); setErrMsg("");
+  const addCrianca = async () => {
+    if (!perdidos || Number(perdidos) <= 0) { setErrMsg("Indica primeiro quantos apoios perdeste"); return; }
+    if (!crianca.trim()) { setErrMsg("Indica o nome da criança"); return; }
+    if (!dia) { setErrMsg("Indica o dia"); return; }
+    if (!hora) { setErrMsg("Indica a hora"); return; }
+    setAdding(true); setErrMsg("");
     try {
-      await apiPost({ action: "registarCompensacao", linha: pedido._linha, terapId: pedido.ID_Terapeuta, nome: pedido.Nome, motivoAusencia: pedido.Motivo, dataAusencia: pedido["Data Início"], apoiosPerdidos: Number(perdidos), apoiosCompensados: Number(compensados), detalhe: detalhe.trim() });
-      onSubmit(pedido._linha, { "Compensação Estado": "Pendente", "Comp Apoios Perdidos": Number(perdidos), "Comp Apoios Compensados": Number(compensados), "Comp Detalhe": detalhe.trim() });
+      await apiPost({
+        action: "registarCompensacao",
+        linha: pedido._linha,
+        terapId: pedido.ID_Terapeuta,
+        nome: pedido.Nome,
+        motivoAusencia: pedido.Motivo,
+        dataAusencia: pedido["Data Início"],
+        apoiosPerdidos: Number(perdidos),
+        crianca: crianca.trim(),
+        dia: dia,
+        hora: hora
+      });
+      setCrianca(""); setDia(""); setHora("");
+      onRefresh();
+    } catch (err) { setErrMsg("Erro: " + err.message); }
+    setAdding(false);
+  };
+
+  const removeCrianca = async (linhaComp) => {
+    setRemovendo(linhaComp);
+    try {
+      await apiPost({ action: "removerCompensacao", linha: linhaComp });
+      onRefresh();
+    } catch (err) { setErrMsg("Erro: " + err.message); }
+    setRemovendo(null);
+  };
+
+  const submeterParaAprovacao = async () => {
+    if (nComp === 0) { setErrMsg("Adiciona pelo menos uma criança compensada"); return; }
+    setSubmitting(true); setErrMsg("");
+    try {
+      await apiPost({
+        action: "submeterCompensacao",
+        linhaAusencia: pedido._linha,
+        apoiosPerdidos: Number(perdidos),
+        apoiosCompensados: nComp
+      });
+      onSubmit(pedido._linha, { "Compensação Estado": "Pendente", "Comp Apoios Perdidos": Number(perdidos), "Comp Apoios Compensados": nComp });
       setDone(true);
       setTimeout(onClose, 1800);
     } catch (err) { setErrMsg("Erro: " + err.message); }
-    setSub(false);
+    setSubmitting(false);
   };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(45,52,54,0.5)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ background: C.white, borderRadius: "26px 26px 0 0", padding: "24px 20px 32px", width: "100%", maxWidth: 420, animation: "slideUp 0.3s ease", maxHeight: "90vh", overflowY: "auto" }}>
         {done ? (
-          <div style={{ textAlign: "center", padding: "24px 0", animation: "pop 0.4s ease" }}><div style={{ fontSize: 48 }}>✅</div><div style={{ fontSize: 17, fontWeight: 800, color: C.green, marginTop: 10 }}>Compensação registada!</div><div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4 }}>A gestão vai validar.</div></div>
+          <div style={{ textAlign: "center", padding: "24px 0", animation: "pop 0.4s ease" }}><div style={{ fontSize: 48 }}>✅</div><div style={{ fontSize: 17, fontWeight: 800, color: C.green, marginTop: 10 }}>Enviado para aprovação!</div><div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4 }}>{nComp}/{perdidos} apoios compensados ({pctCalc}%)</div></div>
         ) : (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
@@ -831,42 +879,78 @@ function CompensationForm({ pedido, onSubmit, onClose }) {
               <button onClick={onClose} style={{ background: C.grayBg, border: "none", borderRadius: "50%", width: 32, height: 32, fontSize: 14, cursor: "pointer", color: C.darkSoft }}>✕</button>
             </div>
 
-            <div style={{ background: C.grayBg, borderRadius: 12, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: C.darkSoft }}>
+            {/* Info da ausência */}
+            <div style={{ background: C.grayBg, borderRadius: 12, padding: "10px 12px", marginBottom: 10, fontSize: 12, color: C.darkSoft }}>
               <div style={{ fontWeight: 700, color: C.dark }}>{motivoInfo(pedido.Motivo).icon} {pedido.Motivo} · {fmtD(pedido["Data Início"])}{pedido["Data Início"] !== pedido["Data Fim"] ? " → " + fmtD(pedido["Data Fim"]) : ""}</div>
               <div style={{ marginTop: 2 }}>{pedido["Dias Úteis"]} dia(s) útil(eis)</div>
             </div>
 
-            <div style={{ background: C.blueBg, borderRadius: 12, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: C.blue, fontWeight: 600, lineHeight: 1.5 }}>
+            <div style={{ background: C.blueBg, borderRadius: 12, padding: "10px 12px", marginBottom: 12, fontSize: 12, color: C.blue, fontWeight: 600, lineHeight: 1.5 }}>
               💡 Compensa-se reagendando os apoios que ficaram por dar. Indica que crianças reagendaste e quando.
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Apoios perdidos</label>
-                <input type="number" min="1" value={perdidos} onChange={e => setPerdidos(e.target.value)} placeholder="Ex: 6" style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 16, fontWeight: 800, color: C.dark, background: C.grayBg, textAlign: "center" }} />
-                <div style={{ fontSize: 9, color: C.gray, marginTop: 2 }}>No dia da falta</div>
-              </div>
-              <div>
-                <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Apoios compensados</label>
-                <input type="number" min="0" value={compensados} onChange={e => setCompensados(e.target.value)} placeholder="Ex: 4" style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 16, fontWeight: 800, color: C.dark, background: C.grayBg, textAlign: "center" }} />
-                <div style={{ fontSize: 9, color: C.gray, marginTop: 2 }}>Reagendados depois</div>
-              </div>
+            {/* Apoios perdidos */}
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Quantos apoios perdeste neste dia?</label>
+              <input type="number" min="1" value={perdidos} onChange={e => setPerdidos(e.target.value)} placeholder="Ex: 6" disabled={nComp > 0} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 16, fontWeight: 800, color: C.dark, background: nComp > 0 ? C.grayLight : C.grayBg, textAlign: "center", opacity: nComp > 0 ? 0.7 : 1 }} />
             </div>
 
-            {perdidos > 0 && compensados > 0 && (
-              <div style={{ textAlign: "center", marginBottom: 12 }}>
-                <span style={{ display: "inline-block", padding: "6px 16px", borderRadius: 20, background: pctCalc >= 100 ? C.greenBg : pctCalc >= 50 ? C.yellowBg : C.redBg, color: pctCalc >= 100 ? C.green : pctCalc >= 50 ? "#E17055" : C.red, fontSize: 14, fontWeight: 900 }}>{pctCalc}% compensado</span>
+            {/* Progresso */}
+            {perdidos > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: C.dark }}>{nComp}/{perdidos} compensados</span>
+                  <span style={{ padding: "3px 12px", borderRadius: 12, background: pctCalc >= 100 ? C.greenBg : pctCalc >= 50 ? C.yellowBg : C.redBg, color: pctCalc >= 100 ? C.green : pctCalc >= 50 ? "#E17055" : C.red, fontSize: 13, fontWeight: 900 }}>{pctCalc}%</span>
+                </div>
+                <div style={{ height: 8, background: C.grayLight, borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 4, width: pctCalc + "%", background: pctCalc >= 100 ? C.green : pctCalc >= 50 ? C.yellow : C.red, transition: "width 0.5s ease" }} />
+                </div>
               </div>
             )}
 
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Detalhe da compensação</label>
-              <textarea value={detalhe} onChange={e => setDetalhe(e.target.value)} placeholder={"Ex: Maria S. reagendada para terça 17h\nJoão P. reagendado para quarta 9h\nAna R. reagendada para quinta 10h"} rows={4} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 13, color: C.dark, background: C.grayBg, fontFamily: "'DM Sans', sans-serif", resize: "vertical" }} />
-              <div style={{ fontSize: 9, color: C.gray, marginTop: 2 }}>Nome das crianças, dia e hora do reagendamento</div>
-            </div>
+            {/* Lista de crianças já adicionadas */}
+            {minhas.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                {minhas.map((c, i) => (
+                  <div key={c._linha || i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: i % 2 === 0 ? C.grayBg : C.white, borderRadius: 10, marginBottom: 3 }}>
+                    <span style={{ fontSize: 16 }}>👶</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.Criança || c.crianca || "?"}</div>
+                      <div style={{ fontSize: 11, color: C.darkSoft }}>{c.Dia ? fmtDF(c.Dia) : ""}{c.Hora ? " · " + c.Hora : ""}</div>
+                    </div>
+                    {estado !== "Pendente" && estado !== "Aprovado" && (
+                      <button onClick={() => removeCrianca(c._linha)} disabled={removendo === c._linha} style={{ background: C.white, border: "1px solid " + C.grayLight, borderRadius: 8, width: 28, height: 28, fontSize: 11, cursor: "pointer", color: C.red, flexShrink: 0, opacity: removendo === c._linha ? 0.4 : 1 }}>✕</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Formulário para adicionar criança */}
+            {estado !== "Pendente" && estado !== "Aprovado" && perdidos > 0 && (
+              <div style={{ background: C.tealLight, borderRadius: 14, padding: "12px 12px 14px", marginBottom: 12, border: "1px solid " + C.tealSoft }}>
+                <div style={{ fontSize: 11, fontWeight: 800, color: C.tealDark, marginBottom: 8 }}>➕ Adicionar criança compensada</div>
+                <input type="text" value={crianca} onChange={e => setCrianca(e.target.value)} placeholder="Nome da criança" style={{ width: "100%", padding: 10, borderRadius: 10, border: "2px solid " + C.white, fontSize: 13, color: C.dark, background: C.white, marginBottom: 6 }} />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+                  <input type="date" value={dia} onChange={e => setDia(e.target.value)} style={{ padding: 10, borderRadius: 10, border: "2px solid " + C.white, fontSize: 12, color: C.dark, background: C.white }} />
+                  <input type="time" value={hora} onChange={e => setHora(e.target.value)} style={{ padding: 10, borderRadius: 10, border: "2px solid " + C.white, fontSize: 12, color: C.dark, background: C.white }} />
+                </div>
+                <button onClick={addCrianca} disabled={adding} style={{ width: "100%", padding: 10, borderRadius: 10, border: "none", background: C.teal, color: C.white, fontSize: 13, fontWeight: 700, cursor: adding ? "default" : "pointer", opacity: adding ? 0.6 : 1 }}>{adding ? "A adicionar..." : "➕ Adicionar"}</button>
+              </div>
+            )}
 
             {errMsg && <div style={{ background: C.redBg, color: C.red, padding: "8px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, marginBottom: 12 }}>⚠️ {errMsg}</div>}
-            <Btn onClick={submit} disabled={sub} variant="primary">{sub ? "A enviar..." : "Registar compensação"}</Btn>
+
+            {/* Botão submeter */}
+            {estado !== "Pendente" && estado !== "Aprovado" && nComp > 0 && (
+              <Btn onClick={submeterParaAprovacao} disabled={submitting} variant="primary">{submitting ? "A enviar..." : "📤 Submeter para aprovação (" + nComp + "/" + perdidos + ")"}</Btn>
+            )}
+            {estado === "Pendente" && (
+              <div style={{ textAlign: "center", padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#E17055" }}>⏳ Já submetido — a aguardar aprovação</div>
+            )}
+            {estado === "Aprovado" && (
+              <div style={{ textAlign: "center", padding: "10px 0", fontSize: 13, fontWeight: 700, color: C.green }}>✅ Compensação aprovada!</div>
+            )}
           </>
         )}
       </div>
@@ -1811,8 +1895,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                 {p.Observações && <div style={{ fontSize: 12, color: C.darkSoft, fontStyle: "italic", marginTop: 4 }}>"{p.Observações}"</div>}
                 {p["Resposta Gestão"] && <div style={{ fontSize: 12, marginTop: 4, padding: "6px 10px", borderRadius: 8, background: p.Estado === "Rejeitado" ? C.redBg : C.greenBg, color: p.Estado === "Rejeitado" ? C.red : C.green, fontWeight: 600 }}>💬 Gestão: {p["Resposta Gestão"]}</div>}
                 <FileBadge url={p.Ficheiro} />
-                {p["Compensação Estado"] === "Aprovado" && (() => { const pct = Number(p["Comp Apoios Perdidos"]) > 0 ? Math.round((Number(p["Comp Apoios Compensados"]) / Number(p["Comp Apoios Perdidos"])) * 100) : 0; return <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: C.green }}>🔄 Compensada {pct}%</div>; })()}
-                {p["Compensação Estado"] === "Pendente" && <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: "#E17055" }}>⏳ Compensação pendente</div>}
+                {(() => { const compLinhas = (data.compensacoes || []).filter(c => String(c.Linha_Ausencia) === String(p._linha)); const nC = compLinhas.length; const perdidos = nC > 0 && compLinhas[0]["Apoios Perdidos"] ? Number(compLinhas[0]["Apoios Perdidos"]) : 0; const pct = perdidos > 0 ? Math.round((nC / perdidos) * 100) : 0; const est = p["Compensação Estado"]; if (est === "Aprovado") return <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: C.green }}>🔄 Compensada {pct}% ({nC}/{perdidos})</div>; if (est === "Pendente") return <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: "#E17055" }}>⏳ Compensação pendente ({nC}/{perdidos})</div>; if (nC > 0) return <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: C.teal }}>🔄 Em curso: {nC}/{perdidos}</div>; return null; })()}
               </Card>
             ); })}
           </div>
@@ -1845,23 +1928,28 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                 {(() => {
                   const isCompensavel = p.Estado === "Aprovado" && passado && !p.Motivo.includes("Férias") && p.Motivo !== "Formação";
                   const compEstado = p["Compensação Estado"];
+                  const compLinhas = (data.compensacoes || []).filter(c => String(c.Linha_Ausencia) === String(p._linha));
+                  const nComp = compLinhas.length;
+                  const perdidos = Number(p["Comp Apoios Perdidos"] || (compLinhas[0] && compLinhas[0]["Apoios Perdidos"]) || 0);
+                  const pct = perdidos > 0 ? Math.round((nComp / perdidos) * 100) : 0;
                   const dentroPrazo = (() => { if (!p["Data Fim"]) return false; const fim = new Date(p["Data Fim"]); const agora = new Date(); const diff = (agora - fim) / (1000*60*60*24); return diff <= 10; })();
                   if (compEstado === "Aprovado") {
-                    const perdidos = Number(p["Comp Apoios Perdidos"] || 0);
-                    const compensados = Number(p["Comp Apoios Compensados"] || 0);
-                    const pct = perdidos > 0 ? Math.round((compensados / perdidos) * 100) : 0;
-                    return <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: C.greenBg, fontSize: 11, fontWeight: 700, color: C.green }}>🔄 Compensação aprovada · {pct}% ({compensados}/{perdidos} apoios)</div>;
+                    return <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: C.greenBg, fontSize: 11, fontWeight: 700, color: C.green }}>🔄 Compensação aprovada · {pct}% ({nComp}/{perdidos} apoios)</div>;
                   }
                   if (compEstado === "Pendente") {
-                    return <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: C.yellowBg, fontSize: 11, fontWeight: 700, color: "#E17055" }}>⏳ Compensação pendente de aprovação</div>;
+                    return <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: C.yellowBg, fontSize: 11, fontWeight: 700, color: "#E17055" }}>⏳ Compensação pendente · {nComp}/{perdidos} apoios ({pct}%)</div>;
                   }
                   if (compEstado === "Rejeitado") {
                     return <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: C.redBg, fontSize: 11, fontWeight: 700, color: C.red }}>✕ Compensação rejeitada</div>;
                   }
+                  // Em curso (tem linhas mas não submeteu)
+                  if (nComp > 0 && dentroPrazo) {
+                    return <button onClick={() => setShowComp(p)} style={{ marginTop: 6, width: "100%", padding: "8px 0", borderRadius: 10, border: "1.5px solid " + C.teal, background: C.tealLight, fontSize: 11, fontWeight: 700, color: C.tealDark, cursor: "pointer" }}>🔄 Em curso: {nComp}/{perdidos} · Continuar compensação</button>;
+                  }
                   if (isCompensavel && dentroPrazo) {
                     return <button onClick={() => setShowComp(p)} style={{ marginTop: 6, width: "100%", padding: "8px 0", borderRadius: 10, border: "1.5px dashed " + C.teal, background: C.tealLight, fontSize: 11, fontWeight: 700, color: C.tealDark, cursor: "pointer" }}>🔄 Compensar esta ausência</button>;
                   }
-                  if (isCompensavel && !dentroPrazo && !compEstado) {
+                  if (isCompensavel && !dentroPrazo && nComp === 0) {
                     return <div style={{ marginTop: 6, fontSize: 10, color: C.gray, fontStyle: "italic" }}>Prazo de compensação expirado (10 dias)</div>;
                   }
                   return null;
@@ -1874,7 +1962,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
 
       {showForm && <AbsenceForm type={showForm} terap={terap} metrics={m} periodos={data.periodos} fecho={data.fecho} onSubmit={handleSubmit} onClose={() => setShowForm(null)} />}
       {editPedido && <EditPedidoForm pedido={editPedido} onSave={handleEdit} onClose={() => setEditPedido(null)} />}
-      {showComp && <CompensationForm pedido={showComp} onSubmit={(ln, compData) => { onEditAusencia(ln, compData); onRefresh(); }} onClose={() => setShowComp(null)} />}
+      {showComp && <CompensationForm pedido={showComp} existingComps={data.compensacoes || []} onSubmit={(ln, compData) => { onEditAusencia(ln, compData); onRefresh(); }} onClose={() => setShowComp(null)} onRefresh={onRefresh} />}
 
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 420, background: C.white, borderTop: "1px solid " + C.grayLight, display: "flex", justifyContent: "space-around", padding: "6px 0 12px", boxShadow: "0 -4px 20px rgba(0,0,0,0.04)" }}>
         {tabs.map(tb => (
@@ -1918,11 +2006,15 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
     setUpd(null); onRefresh();
   };
 
-  const handleComp = async (ln, est) => {
-    setUpd("comp" + ln);
+  const handleComp = async (linhaAusencia, est) => {
+    setUpd("comp" + linhaAusencia);
     try {
-      await apiPost({ action: "validarCompensacao", linha: ln, estado: est });
-      onUpdateEstado(ln, null, null, { "Compensação Estado": est });
+      await apiPost({ action: "validarCompensacao", linhaAusencia: linhaAusencia, estado: est });
+      // Update local ausencia state
+      const comps = (data.compensacoes || []).filter(c => String(c.Linha_Ausencia) === String(linhaAusencia));
+      const nComp = comps.length;
+      const perdidos = comps.length > 0 ? Number(comps[0]["Apoios Perdidos"] || 0) : 0;
+      onUpdateEstado(linhaAusencia, null, null, { "Compensação Estado": est, "Comp Apoios Perdidos": perdidos, "Comp Apoios Compensados": nComp });
     } catch (err) { alert("Erro: " + err.message); }
     setUpd(null); onRefresh();
   };
@@ -1943,7 +2035,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   };
 
   const pend = data.ausencias.filter(a => a.Estado === "Pendente");
-  const compPendCount = (data.compensacoes || []).filter(c => c.Estado === "Pendente").length;
+  const compPendCount = (() => { const seen = new Set(); (data.compensacoes || []).filter(c => c.Estado === "Pendente").forEach(c => seen.add(c.Linha_Ausencia)); return seen.size; })();
   const hist = data.ausencias.filter(a => a.Estado !== "Pendente");
   const histFilt = hist.filter(a => {
     if (filtro === "ferias") return a.Motivo.includes("Férias");
@@ -2409,41 +2501,53 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
 
             {/* ═══ COMPENSAÇÕES PENDENTES ═══ */}
             {(() => {
-              const compPend = (data.compensacoes || []).filter(c => c.Estado === "Pendente");
-              if (compPend.length === 0) return null;
+              // Agrupar compensações por Linha_Ausencia, só mostrar as Pendentes
+              const allComp = data.compensacoes || [];
+              const grouped = {};
+              allComp.forEach(c => {
+                const key = c.Linha_Ausencia;
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(c);
+              });
+              const pendGroups = Object.entries(grouped).filter(([_, comps]) => comps[0].Estado === "Pendente");
+              if (pendGroups.length === 0) return null;
               return (
                 <>
-                  <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "18px 0 10px" }}>🔄 Compensações pendentes <span style={{ background: C.blueBg, color: C.blue, padding: "2px 8px", borderRadius: 8, fontSize: 13, fontWeight: 800, marginLeft: 8 }}>{compPend.length}</span></h2>
-                  {compPend.map((cp, i) => {
-                    const ausRef = data.ausencias.find(a => a._linha === cp.Linha_Ausencia);
-                    const t = data.terapeutas.find(x => x.ID === cp.ID_Terapeuta);
+                  <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "18px 0 10px" }}>🔄 Compensações pendentes <span style={{ background: C.blueBg, color: C.blue, padding: "2px 8px", borderRadius: 8, fontSize: 13, fontWeight: 800, marginLeft: 8 }}>{pendGroups.length}</span></h2>
+                  {pendGroups.map(([linhaAus, comps], i) => {
+                    const ausRef = data.ausencias.find(a => a._linha === Number(linhaAus));
+                    const t = data.terapeutas.find(x => x.ID === comps[0].ID_Terapeuta);
                     const mi = ausRef ? motivoInfo(ausRef.Motivo) : { icon: "❓", color: C.gray, short: "?" };
-                    const perdidos = Number(cp["Apoios Perdidos"] || 0);
-                    const compensados = Number(cp["Apoios Compensados"] || 0);
-                    const pct = perdidos > 0 ? Math.round((compensados / perdidos) * 100) : 0;
+                    const perdidos = Number(comps[0]["Apoios Perdidos"] || 0);
+                    const nComp = comps.length;
+                    const pct = perdidos > 0 ? Math.round((nComp / perdidos) * 100) : 0;
                     return (
                       <Card key={"comp" + i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + C.blue, borderRadius: "4px 20px 20px 4px" }}>
                         <div style={{ marginBottom: 6 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t ? t.Nome : cp.ID_Terapeuta}</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t ? t.Nome : comps[0].ID_Terapeuta}</div>
                             <span style={{ background: mi.color + "18", color: mi.color, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>{mi.icon} {mi.short}</span>
                           </div>
                           {ausRef && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>Ausência: {fmtDF(ausRef["Data Início"])} → {fmtDF(ausRef["Data Fim"])} · {ausRef["Dias Úteis"]}d</div>}
                         </div>
                         <div style={{ background: C.grayBg, borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                            <span style={{ fontSize: 12, fontWeight: 800, color: C.dark }}>🔄 Compensação</span>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: C.dark }}>🔄 {nComp}/{perdidos} compensados</span>
                             <span style={{ padding: "3px 10px", borderRadius: 12, background: pct >= 100 ? C.greenBg : pct >= 50 ? C.yellowBg : C.redBg, color: pct >= 100 ? C.green : pct >= 50 ? "#E17055" : C.red, fontSize: 12, fontWeight: 900 }}>{pct}%</span>
                           </div>
-                          <div style={{ display: "flex", gap: 12, fontSize: 12, color: C.darkSoft, marginBottom: 6 }}>
-                            <span>Perdidos: <strong style={{ color: C.red }}>{perdidos}</strong></span>
-                            <span>Compensados: <strong style={{ color: C.green }}>{compensados}</strong></span>
-                          </div>
-                          <div style={{ fontSize: 12, color: C.dark, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{cp.Detalhe || "(sem detalhe)"}</div>
+                          {comps.map((c, j) => (
+                            <div key={j} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: j > 0 ? "1px solid " + C.grayLight : "none" }}>
+                              <span style={{ fontSize: 14 }}>👶</span>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: C.dark }}>{c["Criança"] || "?"}</div>
+                                <div style={{ fontSize: 11, color: C.darkSoft }}>{c.Dia ? fmtDF(c.Dia) : ""}{c.Hora ? " · " + c.Hora : ""}</div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <Btn onClick={() => handleComp(cp._linha, "Aprovado")} disabled={upd === "comp" + cp._linha} variant="success" style={{ flex: 1, padding: 10 }}>✓ Validar</Btn>
-                          <Btn onClick={() => handleComp(cp._linha, "Rejeitado")} disabled={upd === "comp" + cp._linha} variant="danger" style={{ flex: 1, padding: 10 }}>✕ Rejeitar</Btn>
+                          <Btn onClick={() => handleComp(Number(linhaAus), "Aprovado")} disabled={upd === "comp" + linhaAus} variant="success" style={{ flex: 1, padding: 10 }}>✓ Validar</Btn>
+                          <Btn onClick={() => handleComp(Number(linhaAus), "Rejeitado")} disabled={upd === "comp" + linhaAus} variant="danger" style={{ flex: 1, padding: 10 }}>✕ Rejeitar</Btn>
                         </div>
                       </Card>
                     );
