@@ -65,6 +65,11 @@ function isFeriado(dateStr) {
   return FERIADOS_2026.has(dateStr);
 }
 
+// Feriado incluindo municipal (por terapeuta)
+function isFeriadoTerap(dateStr, feriadoMun) {
+  return FERIADOS_2026.has(dateStr) || (feriadoMun && dateStr === feriadoMun);
+}
+
 // Construir set de dias de fecho a partir da lista
 function buildFechoSet(fecho) {
   const set = new Set();
@@ -80,13 +85,13 @@ function buildFechoSet(fecho) {
 }
 
 // Contar dias de férias reais: sem fds, feriados NEM fecho
-function contarDiasFerias(i, f, fechoSet) {
+function contarDiasFerias(i, f, fechoSet, feriadoMun) {
   if (!i || !f) return 0;
   let c = 0; const d = new Date(i), e = new Date(f);
   while (d <= e) {
     if (d.getDay() % 6 !== 0) {
       const ds = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-      if (!FERIADOS_2026.has(ds) && !fechoSet.has(ds)) c++;
+      if (!isFeriadoTerap(ds, feriadoMun) && !fechoSet.has(ds)) c++;
     }
     d.setDate(d.getDate() + 1);
   }
@@ -113,14 +118,14 @@ function getHorasNoDia(altList, dia, fallbackHL, fallbackHS) {
   return { hL, hS };
 }
 // Calcular objetivo somando dia a dia (cada dia usa as horas em vigor)
-function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbackHS) {
+function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbackHS, feriadoMun) {
   if (!inicio || !fim) return { mMin: 0, mE3: 0, hLDMedia: 0, hSMedia: 0 };
   let somaHL = 0, somaHS = 0, dias = 0;
   const d = new Date(inicio + "T12:00:00"), e = new Date(fim + "T12:00:00");
   while (d <= e) {
     if (d.getDay() !== 0 && d.getDay() !== 6) {
       const ds = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-      if (!FERIADOS_2026.has(ds)) {
+      if (!isFeriadoTerap(ds, feriadoMun)) {
         const { hL, hS } = getHorasNoDia(altList, ds, fallbackHL, fallbackHS);
         somaHL += hL / 5;
         somaHS += hS / 5;
@@ -138,13 +143,13 @@ function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbac
 }
 
 /* ═══════════════════════ CÁLCULOS ═══════════════════════ */
-function contarDiasUteis(i, f) {
+function contarDiasUteis(i, f, feriadoMun) {
   if (!i || !f) return 0;
   let c = 0; const d = new Date(i), e = new Date(f);
   while (d <= e) { 
     if (d.getDay() % 6 !== 0) {
       const ds = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-      if (!FERIADOS_2026.has(ds)) c++;
+      if (!isFeriadoTerap(ds, feriadoMun)) c++;
     }
     d.setDate(d.getDate() + 1); 
   }
@@ -229,11 +234,12 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
   if (!q) return emptyMetrics();
   const hojeStr = new Date().toISOString().slice(0, 10);
   const hor = getHorario(horarios, t.ID);
+  const feriadoMun = String(t["Feriado Municipal"] || "").trim() || null;
 
-  const dLetivoTotal = contarDiasUteis(q.letivoInicio, q.letivoFim);
-  const dLetivoHoje = contarDiasUteis(q.letivoInicio, hojeStr > q.letivoFim ? q.letivoFim : hojeStr);
-  const dQuadTotal = contarDiasUteis(q.qInicio, q.qFim);
-  const dQuadHoje = contarDiasUteis(q.qInicio, hojeStr > q.qFim ? q.qFim : hojeStr);
+  const dLetivoTotal = contarDiasUteis(q.letivoInicio, q.letivoFim, feriadoMun);
+  const dLetivoHoje = contarDiasUteis(q.letivoInicio, hojeStr > q.letivoFim ? q.letivoFim : hojeStr, feriadoMun);
+  const dQuadTotal = contarDiasUteis(q.qInicio, q.qFim, feriadoMun);
+  const dQuadHoje = contarDiasUteis(q.qInicio, hojeStr > q.qFim ? q.qFim : hojeStr, feriadoMun);
 
   const ausQ = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= q.qFim && a["Data Fim"] >= q.qInicio);
   const dB  = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
@@ -245,7 +251,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
   const altList = getAlteracoesTerap(alteracoes, t.ID);
   const fallbackHL = Number(t["Horas Letivas"]) || 0;
   const fallbackHS = Number(t["Horas Semanais"]) || 40;
-  const obj = calcObjetivoDiario(altList, q.letivoInicio, q.letivoFim, dB, fallbackHL, fallbackHS);
+  const obj = calcObjetivoDiario(altList, q.letivoInicio, q.letivoFim, dB, fallbackHL, fallbackHS, feriadoMun);
   const mMin = obj.mMin;
   const hLD = obj.hLDMedia;
   const hSem = obj.hSMedia;
@@ -275,7 +281,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
       while (d <= fim) {
         if (d.getDay() !== 0 && d.getDay() !== 6) {
           const ds = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-          if (!FERIADOS_2026.has(ds)) count++;
+          if (!isFeriadoTerap(ds, feriadoMun)) count++;
         }
         d.setDate(d.getDate() + 1);
       }
@@ -294,7 +300,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
     const d = new Date(fp["Data Início"] + "T12:00:00"), fim = new Date(fp["Data Fim"] + "T12:00:00");
     while (d <= fim) {
       const ds = fmtYMDcalc(d);
-      if (d.getDay() !== 0 && d.getDay() !== 6 && !FERIADOS_2026.has(ds) && !fechoSet.has(ds)) {
+      if (d.getDay() !== 0 && d.getDay() !== 6 && !isFeriadoTerap(ds, feriadoMun) && !fechoSet.has(ds)) {
         diasFeriasSet.add(ds);
       }
       d.setDate(d.getDate() + 1);
@@ -323,11 +329,11 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado };
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado, feriadoMun };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false, feriadoMun: null };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -593,7 +599,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
   const fechoNoPedido = (() => {
     if (!fD.inicio || !fD.fim || !fecho || !isFerias) return 0;
     const fs = buildFechoSet(fecho);
-    return contarDiasUteis(fD.inicio, fD.fim) - contarDiasFerias(fD.inicio, fD.fim, fs);
+    return contarDiasUteis(fD.inicio, fD.fim) - contarDiasFerias(fD.inicio, fD.fim, fs, metrics.feriadoMun);
   })();
   const ultrapassaCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI < diasTrabPedido;
   const esgotouCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI <= 0;
@@ -606,7 +612,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     if (ultrapassaCAIDI) { setErrMsg("Este pedido usa " + diasTrabPedido + " dias de trabalho mas só tens " + metrics.restamCAIDI + " disponíveis. Ajusta as datas."); return; }
     setSub(true); setErrMsg("");
     const fechoSetLocal = buildFechoSet(fecho);
-    let dias = isFerias ? contarDiasFerias(fD.inicio, fD.fim, fechoSetLocal) : contarDiasUteis(fD.inicio, fD.fim);
+    let dias = isFerias ? contarDiasFerias(fD.inicio, fD.fim, fechoSetLocal, metrics.feriadoMun) : contarDiasUteis(fD.inicio, fD.fim);
     if (mesmoDia && periodo !== "dia") dias = 0.5;
     const fechoNoDias = isFerias ? contarDiasUteis(fD.inicio, fD.fim) - dias : 0;
     const periodoLabel = mesmoDia && periodo !== "dia" ? (periodo === "manha" ? " (Manhã)" : " (Tarde)") : "";
@@ -1188,8 +1194,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                         const isPendente = diasPendentes.has(ds);
                         const isHoje = ds === hojeStr;
                         const isFeriadoNac = FERIADOS_2026.has(ds);
-                        if (isFerias || isFecho || isPendente || isFeriadoNac) temAlgo = true;
-                        cells.push({ d, ds, isWe, isFerias, isFecho, isPendente, isHoje, isFeriadoNac });
+                        const isFeriadoMun = m.feriadoMun && ds === m.feriadoMun;
+                        if (isFerias || isFecho || isPendente || isFeriadoNac || isFeriadoMun) temAlgo = true;
+                        cells.push({ d, ds, isWe, isFerias, isFecho, isPendente, isHoje, isFeriadoNac, isFeriadoMun });
                       }
                       
                       return (
@@ -1202,9 +1209,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                             ))}
                             {cells.map((c, i) => {
                               if (!c) return <div key={"e" + i} />;
-                              const bg = c.isFecho ? C.gray : c.isFerias ? C.green : c.isPendente ? C.yellow : c.isFeriadoNac ? C.blue : "transparent";
-                              const color = (c.isFecho || c.isFerias || c.isFeriadoNac) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
-                              const fw = (c.isFecho || c.isFerias || c.isPendente || c.isHoje || c.isFeriadoNac) ? 800 : 400;
+                              const bg = c.isFecho ? C.gray : c.isFerias ? C.green : c.isPendente ? C.yellow : (c.isFeriadoNac || c.isFeriadoMun) ? C.blue : "transparent";
+                              const color = (c.isFecho || c.isFerias || c.isFeriadoNac || c.isFeriadoMun) ? C.white : c.isPendente ? C.dark : c.isWe ? C.grayLight : C.darkSoft;
+                              const fw = (c.isFecho || c.isFerias || c.isPendente || c.isHoje || c.isFeriadoNac || c.isFeriadoMun) ? 800 : 400;
                               const border = c.isHoje ? "2px solid " + C.dark : "2px solid transparent";
                               return (
                                 <div key={c.ds} style={{ fontSize: 9, fontWeight: fw, color, background: bg, borderRadius: 3, padding: "1px 0", lineHeight: 1.5, border, position: "relative" }}>
@@ -1628,6 +1635,17 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
               );
             })()}
             <div style={{ marginTop: 12 }}><Btn onClick={() => setShowForm("ferias")}>📝 Pedir Férias</Btn></div>
+            {m.feriadoMun && (
+              <Card delay={0.08} style={{ marginTop: 10, background: "linear-gradient(135deg, " + C.blueBg + ", " + C.white + ")", border: "1px solid #b8d4e3" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 24 }}>🏛️</span>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: C.blue }}>Feriado municipal</div>
+                    <div style={{ fontSize: 12, color: C.darkSoft }}>{fmtDF(m.feriadoMun)} — não desconta férias</div>
+                  </div>
+                </div>
+              </Card>
+            )}
             <h3 style={{ fontSize: 14, fontWeight: 800, color: C.dark, margin: "16px 0 8px" }}>📅 Fecho do CAIDI</h3>
             <Card delay={0.1} style={{ padding: 0, overflow: "hidden" }}>{data.fecho.map((f, i) => (<div key={i} style={{ padding: "10px 14px", borderBottom: i < data.fecho.length - 1 ? "1px solid " + C.grayLight : "none", display: "flex", justifyContent: "space-between", fontSize: 13, background: i % 2 ? C.white : C.grayBg }}><div><span style={{ fontWeight: 700, color: C.dark }}>{f.Nome}</span><br/><span style={{ fontSize: 11, color: C.gray }}>{fmtDF(f["Data Início"])}{f["Data Início"] !== f["Data Fim"] ? " → " + fmtDF(f["Data Fim"]) : ""}</span></div><span style={{ fontSize: 11, fontWeight: 800, color: C.darkSoft, background: C.grayLight, padding: "3px 8px", borderRadius: 6 }}>{f["Dias Úteis"]}d</span></div>))}</Card>
             <h3 style={{ fontSize: 14, fontWeight: 800, color: C.dark, margin: "14px 0 8px" }}>🏫 Períodos letivos</h3>
@@ -1873,6 +1891,8 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     const bgCol = letivo ? "#FFF0F3" : "#F0FFF4";
                     const fecho = fechoDia(dStr);
                     if (fecho) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.gray, background: bgCol }} title={"Fecho: " + fecho.Nome}>🔒</div>;
+                    const tFerMun = String(t["Feriado Municipal"] || "").trim();
+                    if (tFerMun && dStr === tFerMun) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.blue, background: bgCol }} title="Feriado municipal">🏛️</div>;
                     const tHor = getHorario(data.horarios, t.ID);
                     const dObj = new Date(dStr);
                     if (tHor && !trabalhaDia(tHor, dObj.getDay())) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.grayLight, fontWeight: 700, background: bgCol }} title="Sem horário">—</div>;
@@ -1890,7 +1910,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             </Card>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, padding: "0 4px" }}>
-              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "—", l: "S/horário", c: C.gray }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🎁", l: "F. bónus", c: C.green }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
+              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "—", l: "S/horário", c: C.gray }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🏛️", l: "Fer.mun.", c: C.blue }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🎁", l: "F. bónus", c: C.green }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
                 <span key={i} style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}>{x.i} {x.l}</span>
               ))}
             </div>
@@ -1938,6 +1958,8 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       const bgCol = letivo ? "#FFF0F3" : "#F0FFF4";
                       const fecho = fechoDia(dStr);
                       if (fecho) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.gray, background: bgCol }}>🔒</div>;
+                      const tFerMun = String(t["Feriado Municipal"] || "").trim();
+                      if (tFerMun && dStr === tFerMun) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.blue, background: bgCol }} title="Feriado municipal">🏛️</div>;
                       const tHor = getHorario(data.horarios, t.ID);
                       const dObj = new Date(dStr);
                       if (tHor && !trabalhaDia(tHor, dObj.getDay())) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: C.grayLight, background: bgCol }}>—</div>;
@@ -1955,7 +1977,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             </Card>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, padding: "0 4px" }}>
-              {[{ i: "✓", l: "Trabalha" }, { i: "—", l: "S/horário" }, { i: "🔒", l: "Fecho" }, { i: "🌴", l: "Férias" }, { i: "🎁", l: "F. bónus" }, { i: "🏥", l: "Baixa" }, { i: "📋", l: "Falta" }, { i: "⚠️", l: "F.Inj." }, { i: "🎓", l: "Form." }].map((x, i) => (
+              {[{ i: "✓", l: "Trabalha" }, { i: "—", l: "S/horário" }, { i: "🔒", l: "Fecho" }, { i: "🏛️", l: "Fer.mun." }, { i: "🌴", l: "Férias" }, { i: "🎁", l: "F. bónus" }, { i: "🏥", l: "Baixa" }, { i: "📋", l: "Falta" }, { i: "⚠️", l: "F.Inj." }, { i: "🎓", l: "Form." }].map((x, i) => (
                 <span key={i} style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}>{x.i} {x.l}</span>
               ))}
             </div>
@@ -2002,6 +2024,8 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     const tHor = getHorario(data.horarios, t.ID);
                     const dObj = new Date(dStr);
                     if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
+                    const tFerMun = String(t["Feriado Municipal"] || "").trim();
+                    if (tFerMun && dStr === tFerMun) { row.push("FER.MUN."); return; }
                     const aus = terapAusenteDia(t.ID, dStr);
                     if (aus) {
                       const isFerias = aus.Motivo.includes("Férias");
