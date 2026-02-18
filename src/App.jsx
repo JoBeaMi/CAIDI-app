@@ -771,158 +771,55 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
         {/* ═══ TAB INÍCIO ═══ */}
         {tab === "inicio" && (
           <div>
-            {/* Mensagem da equipa */}
+            {/* Frase motivacional */}
             {!isADM && (() => {
-              const equipaTeraps = data.terapeutas.filter(t => t["Área"] !== "ADM");
-              const hojeStr = new Date().toISOString().slice(0, 10);
               const hoje = new Date();
-              const equipaData = equipaTeraps.map(t => {
-                const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
-                const tEf = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
-                const tM = calc(t, tEf, tAus, data.periodos, data.fecho, data.horarios, data.alteracoes);
-                const emBaixa = tAus.some(a => a.Motivo === "Baixa Médica" && a.Estado === "Aprovado" && hojeStr >= a["Data Início"] && hojeStr <= a["Data Fim"]);
-                return { ...t, m: tM, emBaixa, hLetivas: Math.round(tM.hLD * 5 * 10) / 10 || Number(t["Horas Letivas"]) || 0 };
-              });
-              
-              const emBaixaCount = equipaData.filter(t => t.emBaixa).length;
-              
-              // --- SEMANAL ---
-              const diaSem = hoje.getDay() || 7;
-              
-              // Capacidade semanal = soma horas letivas de todos os ativos (não de baixa)
-              const ativos = equipaData.filter(t => !t.emBaixa && t.hLetivas > 0);
-              const capSemanal = ativos.reduce((s, t) => s + t.hLetivas, 0);
-              
-              // Somar semanas do resumo pré-calculado no servidor
-              let apoiosEstaSem = 0, apoiosSemPassada = 0;
-              equipaTeraps.forEach(t => {
-                const r = data.resumoApoios && data.resumoApoios[String(t.ID)];
-                if (r) { apoiosEstaSem += r.semanaAtual || 0; apoiosSemPassada += r.semanaPassada || 0; }
-              });
-              
-              // Dias úteis já passados esta semana (para proporcionalizar)
-              const diasUteisSem = Math.min(diaSem <= 5 ? diaSem : 5, 5);
-              // Capacidade proporcional ao dia da semana
-              const capProporcional = Math.round(capSemanal * (diasUteisSem / 5));
-              
-              const pctSemana = capProporcional > 0 ? Math.round((apoiosEstaSem / capProporcional) * 100) : 0;
-              const gapSemana = Math.max(capProporcional - apoiosEstaSem, 0);
-              const semBem = pctSemana >= 95;
-              
-              // Gap traduzido em crianças (1 sessão/semana por criança)
-              const criancasGap = gapSemana;
-              
-              // Tendência
-              const temPassada = apoiosSemPassada > 0;
-              const tendencia = temPassada ? apoiosEstaSem - Math.round(apoiosSemPassada * (diasUteisSem / 5)) : 0;
-              
-              // --- PERÍODO INTEIRO ---
-              const pInicio = q && q.letivoInicio ? q.letivoInicio : null;
-              const pFim = q && q.letivoFim ? q.letivoFim : null;
-              const diasLetivosPeriodo = pInicio ? contarDiasUteis(new Date(pInicio), hoje) : 0;
-              const diasRestantes = pFim ? Math.max(contarDiasUteis(hoje, new Date(pFim)) - 1, 0) : 0;
-              
-              let capPeriodo = 0, capRestante = 0, apoiosPeriodo = 0;
-              if (diasLetivosPeriodo > 0) {
-                ativos.forEach(t => {
-                  const hPorDia = t.hLetivas / 5;
-                  const tAus = data.ausencias.filter(a => a.ID_Terapeuta === t.ID && a.Motivo === "Baixa Médica" && a.Estado === "Aprovado");
-                  const diasBaixa = tAus.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-                  capPeriodo += Math.round(hPorDia * Math.max(diasLetivosPeriodo - diasBaixa, 0));
-                  capRestante += Math.round(hPorDia * diasRestantes);
-                  const r = data.resumoApoios && data.resumoApoios[String(t.ID)];
-                  if (r) apoiosPeriodo += r.ef || 0;
-                });
-              }
-              const pctPeriodo = capPeriodo > 0 ? Math.round((apoiosPeriodo / capPeriodo) * 100) : 0;
-
-              // Frases rotativas
-              const dia = hoje.getDate();
+              const dia = hoje.getDate() + hoje.getMonth() * 31;
               const frases = [
-                { msg: "Existimos para garantir que nenhuma criança fica sem apoio por causa da condição socioeconómica da sua família. Essa é a nossa missão.", cta: "Cumpre o teu horário, prepara cada sessão, dá o teu melhor. Estas famílias contam contigo." },
-                { msg: "Trabalhar no CAIDI é uma responsabilidade: muitas das nossas famílias não têm alternativa. Somos a única resposta que conhecem.", cta: "Se tens vagas por preencher, sinaliza. Há quem esteja à espera." },
-                { msg: "Não escolhemos as crianças pelo que as famílias podem pagar. Escolhemos todas — porque todas merecem o melhor.", cta: "Dá a cada sessão a mesma qualidade, a cada criança a mesma atenção. É isso que nos define." },
-                { msg: "Somos referência em avaliação, relatórios e intervenção. A qualidade do nosso trabalho é o que nos distingue — e não baixamos a fasquia.", cta: "Mantém os teus relatórios em dia, prepara as sessões com rigor. A excelência é um hábito, não um acaso." },
-                { msg: "Formamos, avaliamos, intervimos. Cada relatório que escrevemos abre portas. Cada sessão que fazemos muda o rumo de uma família.", cta: "Não deixes sessões por fazer nem relatórios por escrever. Cada atraso é uma porta que demora a abrir." },
-                { msg: "Ser bom não basta — queremos ser os melhores. Porque as crianças que nos chegam merecem o mesmo que qualquer outra.", cta: "Investe na tua formação, partilha o que aprendes, exige de ti o que exigirias para o teu filho." },
-                { msg: "Cada sessão é uma criança que recebe o acompanhamento que precisa, quando precisa, independentemente de onde vem.", cta: "Uma sessão que não acontece é uma criança que espera mais uma semana. Sê pontual, sê presente." },
-                { msg: "Há crianças em lista de espera. Cada vaga que preenchemos é uma família que deixa de esperar por ajuda.", cta: "Se um utente falta sistematicamente, sinaliza. Essa vaga pode mudar a vida de outra criança." },
-                { msg: "O nosso trabalho vai além da terapia. Damos dignidade, damos oportunidade, damos futuro.", cta: "Trata cada família com o respeito que merece. O profissionalismo começa na forma como acolhemos." },
-                { msg: "Somos uma equipa social. Quem nos procura muitas vezes não tem mais nenhum sítio onde ir. Essa confiança obriga-nos a dar o melhor todos os dias.", cta: "Se algo não está a correr bem, fala. Um problema partilhado resolve-se; um problema escondido cresce." },
-                { msg: "Trabalhar aqui é um privilégio e uma responsabilidade. Cada um de nós faz parte da resposta que estas famílias precisam.", cta: "Assume o teu papel. A equipa precisa que cada um faça a sua parte com compromisso e ética." },
-                { msg: "Quando damos o nosso melhor, não é por números — é porque há crianças que dependem de nós para ter as mesmas oportunidades que as outras.", cta: "Olha para a tua agenda. Estás a dar tudo o que podes? Se não, hoje é um bom dia para começar." },
+                { msg: "Existimos para garantir que nenhuma criança fica sem apoio por causa da condição socioeconómica da sua família. Essa é a nossa missão.", cta: "Cada criança que entra pela nossa porta traz consigo uma família inteira a acreditar que vai correr bem. Essa confiança é o nosso maior motor." },
+                { msg: "Muitas das nossas famílias não têm alternativa. Para elas, o CAIDI não é uma opção. É a resposta.", cta: "Quando dás o teu melhor numa sessão, estás a mudar a história de alguém que não tinha mais nenhum sítio onde ir." },
+                { msg: "Não escolhemos as crianças pelo que as famílias podem pagar. Escolhemos todas. Porque todas merecem o melhor.", cta: "Cada sessão que fazes com dedicação é a prova de que o acesso à qualidade não depende do dinheiro." },
+                { msg: "Há sessões que parecem pequenas. Mas para a criança que está do outro lado, aqueles 45 minutos podem ser o melhor momento da semana.", cta: "Tu és a pessoa que aquela criança procura com os olhos quando chega. Isso não se ensina. Conquista-se." },
+                { msg: "Cada relatório que escrevemos abre portas. Cada sessão que fazemos muda o rumo de uma família.", cta: "Há famílias que mudaram de rumo por causa de um relatório teu, de uma sessão tua. Tu fizeste isso." },
+                { msg: "Por trás de cada número na app, há uma criança real, uma família real, uma história real.", cta: "Cada número que vês aqui tem um rosto. E esse rosto sorriu porque estiveste lá." },
+                { msg: "Uma sessão que não acontece é uma criança que espera mais uma semana. E para ela, uma semana é muito tempo.", cta: "Cada vez que entras naquela sala, lembra-te: aquela criança esteve a semana inteira à tua espera." },
+                { msg: "Há crianças em lista de espera. Cada vaga que preenchemos é uma família que deixa de esperar por ajuda.", cta: "Se vires que um lugar pode ser libertado, fala. Há quem esteja à espera de uma oportunidade que tu podes abrir." },
+                { msg: "O nosso trabalho vai além da terapia. Damos dignidade, damos oportunidade, damos futuro.", cta: "Tu não és só terapeuta. És a primeira pessoa que disse àquela família: vamos conseguir juntos. E isso muda tudo." },
+                { msg: "Somos uma equipa. O que cada um faz afeta todos. E principalmente as crianças que dependem de nós.", cta: "Se algo não está a correr bem contigo, não guardes. Pedir ajuda não é fraqueza. É cuidar de quem cuida." },
+                { msg: "Escolheste trabalhar com crianças. Escolheste fazer a diferença. Isso diz tudo sobre ti.", cta: "Podias estar em qualquer lado. Escolheste estar aqui, com estas crianças, com estas famílias. Isso faz de ti alguém especial." },
+                { msg: "Às vezes o cansaço pesa. Mas depois uma criança sorri, uma mãe agradece, e lembras-te de porquê.", cta: "Cuida de ti para poderes cuidar dos outros. O teu bem-estar também faz parte da missão." },
+                { msg: "O CAIDI é onde se faz diferente. Mais rigor, mais coração, mais resultados. Não é por acaso que as famílias nos procuram.", cta: "Cada sessão tua mantém essa reputação viva. Tens orgulho no que fazemos? Nós também." },
+                { msg: "As nossas avaliações são referência porque não olhamos só para uma área. Cruzamos olhares, partilhamos entre disciplinas, e por isso vemos o que outros não veem.", cta: "Quando falas com uma colega de outra área sobre um caso, estás a dar àquela criança uma avaliação que mais ninguém lhe daria." },
+                { msg: "Inovar é encontrar uma nova forma de chegar a uma criança que ninguém conseguiu alcançar.", cta: "Se tens uma ideia diferente, experimenta. As melhores soluções do CAIDI nasceram de alguém que tentou de outra forma." },
+                { msg: "Não nos contentamos com suficiente. Queremos que cada criança saia daqui melhor do que qualquer um esperava.", cta: "Esse padrão de excelência não vem de nenhum manual. Vem de nós. É por isso que somos quem somos." },
+                { msg: "O CAIDI cresceu por causa de pessoas como tu. Pessoas que não desistem, que estudam mais, que querem fazer melhor.", cta: "Continua a querer mais. A procurar formação, a partilhar com a equipa. É assim que nos mantemos à frente." },
+                { msg: "Um bom diagnóstico não nasce de uma pessoa sozinha. Nasce quando juntamos o que cada um sabe.", cta: "Quando procuras a tua colega para perceber melhor um caso, não estás a pedir ajuda. Estás a fazer o que os melhores profissionais fazem." },
+                { msg: "As famílias que nos procuram muitas vezes já passaram por outros sítios. Escolheram ficar connosco. Isso diz muito sobre o teu trabalho.", cta: "Essa confiança constrói-se sessão a sessão. E és tu que a constróis." },
+                { msg: "Há crianças que chegam aqui e um dia fazem algo que ninguém acreditava ser possível. Não foi sorte. Foi o teu trabalho, sessão após sessão, que fez isso acontecer.", cta: "Esses momentos não aparecem em nenhum relatório. Mas são a razão de tudo." },
+                { msg: "Queremos ser sempre melhores. Não por obrigação, mas porque cada criança merece a melhor versão de nós.", cta: "Viste algo numa formação que te fez pensar? Leste um artigo que te mudou a forma de ver um caso? Partilha. É assim que crescemos juntos." },
+                { msg: "Há dias em que sentes que não fizeste o suficiente. Mas a mãe que te agradeceu à porta sabe que fizeste.", cta: "Confia no teu trabalho. Tu sabes mais do que pensas e fazes mais do que imaginas." },
+                { msg: "A maioria das nossas sessões acontece nas escolas. Estás lá dentro, no contexto real da criança. Isso é uma vantagem enorme.", cta: "Aproveita essa proximidade. Uma conversa de dois minutos com a docente depois da sessão pode valer mais do que horas de relatórios." },
+                { msg: "Tens à tua volta colegas com experiências e conhecimentos diferentes dos teus. Poucos sítios te dão isto.", cta: "Quando sentes que um caso te desafia, lembra-te: a resposta pode estar na sala ao lado. Usa a equipa. É para isso que cá estamos." },
+                { msg: "A supervisão é o teu espaço para pensar, duvidar e crescer com quem já passou pelo mesmo.", cta: "Aproveita cada momento de supervisão e tutoria. É tempo que tens para ti, para o teu desenvolvimento. Nem todos os profissionais têm essa oportunidade." },
+                { msg: "A intervisão é onde a magia acontece. É onde descobres que a tua colega já resolveu exactamente aquilo que te está a tirar o sono.", cta: "Partilha os teus casos difíceis. Ouve os dos outros. Sais sempre de lá com algo novo." },
+                { msg: "Não tens de saber tudo. Tens de saber a quem perguntar. E aqui dentro, há sempre alguém que sabe.", cta: "Pedir ajuda a uma colega não é falhar. É dar a cada criança e à sua família o melhor de duas cabeças em vez de uma." },
+                { msg: "Há profissionais que trabalham sozinhos anos sem nunca terem uma supervisão. Tu tens acesso a supervisão, tutoria e intervisão todas as semanas.", cta: "Isso não é um extra. É o que te permite ser melhor do que serias sem a equipa. Aproveita cada minuto." },
               ];
               const frase = frases[dia % frases.length];
 
               return (
                 <Card delay={0} style={{ marginBottom: 8, background: "linear-gradient(135deg, " + C.tealLight + ", " + C.white + ")", border: "1px solid " + C.tealSoft, position: "relative", overflow: "hidden" }}>
                   <div style={{ position: "absolute", top: -15, right: -15, width: 60, height: 60, borderRadius: "50%", background: C.teal + "08" }} />
-                  
-                  <div style={{ fontSize: 10, fontWeight: 800, color: C.tealDark, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🤝 Equipa CAIDI</div>
-                  
-                  {/* Frase + CTA */}
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.tealDark, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>🤝 CAIDI</div>
                   <div style={{ fontSize: 13, color: C.dark, lineHeight: 1.7, marginBottom: 6 }}>
                     {frase.msg}
                   </div>
-                  <div style={{ fontSize: 14, color: C.tealDark, fontWeight: 800, lineHeight: 1.6, marginBottom: 12, background: "rgba(0,168,157,0.08)", padding: "8px 10px", borderRadius: 10, borderLeft: "3px solid " + C.teal }}>
+                  <div style={{ fontSize: 14, color: C.tealDark, fontWeight: 800, lineHeight: 1.6, marginBottom: 10, background: "rgba(0,168,157,0.08)", padding: "8px 10px", borderRadius: 10, borderLeft: "3px solid " + C.teal }}>
                     {frase.cta}
                   </div>
-                  
-                  {/* O que são apoios */}
-                  <div style={{ fontSize: 11, color: C.darkSoft, lineHeight: 1.6, marginBottom: 10, padding: "8px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 10 }}>
-                    Sessões de terapia, avaliações, reuniões de escola e intervenção parental. Cada um dura 45 minutos. Tudo isto conta como <strong>apoio direto</strong> no CAIDI.
+                  <div style={{ fontSize: 11, color: C.darkSoft, lineHeight: 1.5, padding: "6px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 10 }}>
+                    Sessões de terapia, avaliações, reuniões de escola e intervenção parental. Cada apoio dura 45 minutos.
                   </div>
-
-                  {/* Números do período */}
-                  <div style={{ background: "rgba(255,255,255,0.7)", borderRadius: 14, padding: "12px" }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 }}>📊 {q ? q.periodo : "Período"} · até hoje</div>
-                    
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 10 }}>
-                      <div>
-                        <div style={{ fontSize: 10, color: C.gray, fontWeight: 600 }}>Capacidade</div>
-                        <div style={{ fontSize: 24, fontWeight: 900, color: C.grayLight, lineHeight: 1.1 }}>{capPeriodo}</div>
-                      </div>
-                      <div style={{ textAlign: "center" }}>
-                        <div style={{ fontSize: 10, color: C.gray, fontWeight: 600 }}>Realizados</div>
-                        <div style={{ fontSize: 28, fontWeight: 900, color: pctPeriodo >= 95 ? C.green : pctPeriodo >= 80 ? C.teal : C.red, lineHeight: 1.1 }}>{apoiosPeriodo}</div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontSize: 32, fontWeight: 900, color: pctPeriodo >= 95 ? C.green : pctPeriodo >= 80 ? C.teal : C.red, lineHeight: 1.1 }}>{pctPeriodo}%</div>
-                      </div>
-                    </div>
-                    
-                    {/* Barra */}
-                    <div style={{ height: 10, background: C.grayLight, borderRadius: 5, overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: Math.min(pctPeriodo, 100) + "%", background: pctPeriodo >= 95 ? C.green : pctPeriodo >= 80 ? "linear-gradient(90deg, " + C.teal + ", " + C.tealDark + ")" : "linear-gradient(90deg, " + C.red + ", #E17055cc)", borderRadius: 5, transition: "width 1.2s ease" }} />
-                    </div>
-                    <div style={{ fontSize: 10, color: C.gray, marginTop: 4, textAlign: "center" }}>a 1 apoio por hora direta (mínimo)</div>
-                  </div>
-
-                  {/* Daqui para a frente */}
-                  <div style={{ marginTop: 8, background: "rgba(255,255,255,0.7)", borderRadius: 14, padding: "12px" }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📅 Daqui até ao final do período</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                      <div style={{ fontSize: 28, fontWeight: 900, color: C.teal, lineHeight: 1 }}>{capRestante}</div>
-                      <div style={{ fontSize: 12, color: C.darkSoft, lineHeight: 1.4 }}>apoios de capacidade restante</div>
-                    </div>
-                    
-                    <div style={{ padding: "10px 12px", background: pctPeriodo >= 95 ? C.greenBg : pctPeriodo >= 90 ? C.tealLight : C.yellowBg, borderRadius: 10, fontSize: 13, fontWeight: 700, color: C.dark, lineHeight: 1.6 }}>
-                      {pctPeriodo >= 95 ? (
-                        "Estamos a cumprir. Vamos manter este ritmo até ao final."
-                      ) : pctPeriodo >= 90 ? (
-                        "Estamos perto. Se cada um fizer a sua parte, chegamos lá."
-                      ) : (
-                        "Cada um de nós tem a responsabilidade de garantir que, a partir de agora, cada hora conta."
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Baixas */}
-                  {emBaixaCount > 0 && (
-                    <div style={{ marginTop: 6, fontSize: 11, color: C.purple, fontWeight: 600 }}>
-                      🏥 {emBaixaCount} colega{emBaixaCount > 1 ? "s" : ""} de baixa — a capacidade já está ajustada.
-                    </div>
-                  )}
                 </Card>
               );
             })()}
