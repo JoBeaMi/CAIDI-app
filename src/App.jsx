@@ -411,6 +411,7 @@ function Login({ terapeutas, config, onLogin }) {
   const [pinGestao, setPinGestao] = useState("");
   const [err, setErr] = useState("");
   const [mode, setMode] = useState("terapeuta");
+  const [busca, setBusca] = useState("");
 
   const go = () => {
     if (mode === "gestao") {
@@ -446,8 +447,9 @@ function Login({ terapeutas, config, onLogin }) {
         {mode === "terapeuta" ? (
           <>
             <label style={{ fontSize: 11, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 8 }}>Quem és tu?</label>
+            <input type="text" value={busca} onChange={e => setBusca(e.target.value)} placeholder="🔍 Procurar nome..." style={{ width: "100%", padding: "10px 12px", borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 13, color: C.dark, background: C.grayBg, marginBottom: 8, fontWeight: 500 }} />
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18, maxHeight: 210, overflowY: "auto", paddingRight: 4 }}>
-              {terapeutas.map(t => (
+              {terapeutas.filter(t => !busca || t.Nome.toLowerCase().includes(busca.toLowerCase())).map(t => (
                 <button key={t.ID} onClick={() => { setSel(t.ID); setErr(""); }} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", borderRadius: 14, border: sel === t.ID ? "2px solid " + C.teal : "2px solid " + C.grayLight, background: sel === t.ID ? C.tealLight : C.grayBg, cursor: "pointer", transition: "all 0.2s" }}>
                   <div style={{ width: 36, height: 36, borderRadius: 12, background: sel === t.ID ? C.teal : C.grayLight, color: sel === t.ID ? C.white : C.gray, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, transition: "all 0.2s" }}>{ini(t.Nome)}</div>
                   <div style={{ textAlign: "left" }}><div style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{t.Nome}</div><div style={{ fontSize: 11, color: C.darkSoft }}>{t["Área"]}</div></div>
