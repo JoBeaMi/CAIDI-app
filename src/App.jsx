@@ -1243,7 +1243,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
               </div>
               <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: mq.diff >= 0 ? C.greenBg : C.yellowBg, textAlign: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: mq.diff >= 0 ? C.green : C.red }}>
-                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Meta atingida!" : "❌ Meta não atingida") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
+                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingido!" : "❌ Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
                 </span>
                 {!mq.passado && mq.proj > 0 && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>📈 Projeção: ~{mq.proj} apoios até ao fim</div>}
               </div>
@@ -1373,7 +1373,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia }) {
                         const badges = [];
                         if (acimaE3) badges.push({ icon: "💎", label: "10€ por apoio", desc: "Patamar máximo!" });
                         else if (acimaE2) badges.push({ icon: "💰", label: "5€ por apoio", desc: "Cada apoio extra = 5€" });
-                        if (acimaObjetivo && mq.ef >= mq.mBonus) badges.push({ icon: "🌴", label: "Dia Extra garantido", desc: "+1 dia de férias" });
+                        if (acimaObjetivo && mq.ef >= mq.mBonus) badges.push({ icon: "🌴", label: "Dia extra garantido", desc: "+1 dia de férias" });
                         if (aph >= 1.2) badges.push({ icon: "⚡", label: "Alta eficiência", desc: aph + " apoios/hora direta" });
 
                         // 🔴 CRÍTICO < 0.5
