@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 /* ═══════════════════════════════════════════════════════════════
    CONFIGURAÇÃO — Cola aqui o URL do Google Apps Script
    ═══════════════════════════════════════════════════════════════ */
-const API_URL = "https://script.google.com/macros/s/AKfycbxTBG-Q9sbIyYWx05QZkl6BoFscIWINdJksYofOozrTqZ-iHI7zQ_gkIIVTbBItahkwfQ/exec";
+const API_URL = "https://script.google.com/macros/s/AKfycbxaz2PcPnXknzCdsUoSp3B3MSU5E34CUZdnrBFOCeMCAbedpJG-Cmg-wgwpGVxgrcELiQ/exec";
 /* ⚠️  Após atualizar o Apps Script, faz novo deploy e cola o URL atualizado acima */
 
 /* ═══════════════════════ PALETA CAIDI ═══════════════════════ */
@@ -68,6 +68,15 @@ function isFeriado(dateStr) {
 // Feriado incluindo municipal (por terapeuta)
 function isFeriadoTerap(dateStr, feriadoMun) {
   return FERIADOS_2026.has(dateStr) || (feriadoMun && dateStr === feriadoMun);
+}
+
+// Normalizar data de feriado municipal (pode vir como Date ISO ou string)
+function normFeriadoMun(val) {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (!s) return null;
+  if (s.includes("T")) return s.slice(0, 10);
+  return s;
 }
 
 // Construir set de dias de fecho a partir da lista
@@ -234,7 +243,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
   if (!q) return emptyMetrics();
   const hojeStr = new Date().toISOString().slice(0, 10);
   const hor = getHorario(horarios, t.ID);
-  const feriadoMun = String(t["Feriado Municipal"] || "").trim() || null;
+  const feriadoMun = normFeriadoMun(t["Feriado Municipal"]);
 
   const dLetivoTotal = contarDiasUteis(q.letivoInicio, q.letivoFim, feriadoMun);
   const dLetivoHoje = contarDiasUteis(q.letivoInicio, hojeStr > q.letivoFim ? q.letivoFim : hojeStr, feriadoMun);
@@ -329,11 +338,30 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado, feriadoMun };
+  // ── Assiduidade ──
+  // Faltas que contam: baixa, falta justificada, falta injustificada (NÃO formação aprovada)
+  const ausAssiduidade = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= (hojeStr > q.qFim ? q.qFim : hojeStr) && a["Data Fim"] >= q.qInicio && a.Motivo !== "Formação" && !a.Motivo.includes("Férias"));
+  const diasFaltaTotal = ausAssiduidade.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
+  // Compensações aprovadas: reduzem as faltas proporcionalmente
+  const diasCompensados = ausAssiduidade.reduce((s, a) => {
+    const compEst = a["Compensação Estado"];
+    if (compEst !== "Aprovado") return s;
+    const perdidos = Number(a["Comp Apoios Perdidos"] || 0);
+    const compensados = Number(a["Comp Apoios Compensados"] || 0);
+    if (perdidos <= 0) return s;
+    const pct = Math.min(compensados / perdidos, 1);
+    return s + (Number(a["Dias Úteis"] || 0) * pct);
+  }, 0);
+  const faltasEfetivas = Math.max(diasFaltaTotal - diasCompensados, 0);
+  const diasUteisPeriodo = contarDiasUteis(q.qInicio, hojeStr > q.qFim ? q.qFim : hojeStr, feriadoMun);
+  const pctAssiduidade = diasUteisPeriodo > 0 ? Math.round(((diasUteisPeriodo - faltasEfetivas) / diasUteisPeriodo) * 1000) / 10 : 100;
+  const assiduidadeOk = pctAssiduidade >= 95;
+
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado, feriadoMun, pctAssiduidade, assiduidadeOk, diasFaltaTotal, diasCompensados, faltasEfetivas };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false, feriadoMun: null };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false, feriadoMun: null, pctAssiduidade: 100, assiduidadeOk: true, diasFaltaTotal: 0, diasCompensados: 0, faltasEfetivas: 0 };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -764,6 +792,86 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
   );
 }
 
+/* ═══════════════════════ COMPENSATION FORM ═══════════════════════ */
+function CompensationForm({ pedido, onSubmit, onClose }) {
+  const [perdidos, setPerdidos] = useState("");
+  const [compensados, setCompensados] = useState("");
+  const [detalhe, setDetalhe] = useState("");
+  const [sub, setSub] = useState(false);
+  const [done, setDone] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+
+  const pctCalc = perdidos > 0 && compensados > 0 ? Math.min(Math.round((compensados / perdidos) * 100), 100) : 0;
+
+  const submit = async () => {
+    if (!perdidos || Number(perdidos) <= 0) { setErrMsg("Indica quantos apoios perdeste"); return; }
+    if (!compensados || Number(compensados) <= 0) { setErrMsg("Indica quantos apoios compensaste"); return; }
+    if (!detalhe.trim() || detalhe.trim().length < 10) { setErrMsg("Descreve que crianças reagendaste e quando (mínimo 10 caracteres)"); return; }
+    setSub(true); setErrMsg("");
+    try {
+      await apiPost({ action: "registarCompensacao", linha: pedido._linha, apoiosPerdidos: Number(perdidos), apoiosCompensados: Number(compensados), detalhe: detalhe.trim() });
+      onSubmit(pedido._linha, { "Compensação Estado": "Pendente", "Comp Apoios Perdidos": Number(perdidos), "Comp Apoios Compensados": Number(compensados), "Comp Detalhe": detalhe.trim() });
+      setDone(true);
+      setTimeout(onClose, 1800);
+    } catch (err) { setErrMsg("Erro: " + err.message); }
+    setSub(false);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(45,52,54,0.5)", backdropFilter: "blur(4px)", zIndex: 100, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: C.white, borderRadius: "26px 26px 0 0", padding: "24px 20px 32px", width: "100%", maxWidth: 420, animation: "slideUp 0.3s ease", maxHeight: "90vh", overflowY: "auto" }}>
+        {done ? (
+          <div style={{ textAlign: "center", padding: "24px 0", animation: "pop 0.4s ease" }}><div style={{ fontSize: 48 }}>✅</div><div style={{ fontSize: 17, fontWeight: 800, color: C.green, marginTop: 10 }}>Compensação registada!</div><div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4 }}>A gestão vai validar.</div></div>
+        ) : (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <h3 style={{ fontSize: 18, fontWeight: 900, color: C.dark, margin: 0 }}>🔄 Compensar ausência</h3>
+              <button onClick={onClose} style={{ background: C.grayBg, border: "none", borderRadius: "50%", width: 32, height: 32, fontSize: 14, cursor: "pointer", color: C.darkSoft }}>✕</button>
+            </div>
+
+            <div style={{ background: C.grayBg, borderRadius: 12, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: C.darkSoft }}>
+              <div style={{ fontWeight: 700, color: C.dark }}>{motivoInfo(pedido.Motivo).icon} {pedido.Motivo} · {fmtD(pedido["Data Início"])}{pedido["Data Início"] !== pedido["Data Fim"] ? " → " + fmtD(pedido["Data Fim"]) : ""}</div>
+              <div style={{ marginTop: 2 }}>{pedido["Dias Úteis"]} dia(s) útil(eis)</div>
+            </div>
+
+            <div style={{ background: C.blueBg, borderRadius: 12, padding: "10px 12px", marginBottom: 14, fontSize: 12, color: C.blue, fontWeight: 600, lineHeight: 1.5 }}>
+              💡 Compensa-se reagendando os apoios que ficaram por dar. Indica que crianças reagendaste e quando.
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Apoios perdidos</label>
+                <input type="number" min="1" value={perdidos} onChange={e => setPerdidos(e.target.value)} placeholder="Ex: 6" style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 16, fontWeight: 800, color: C.dark, background: C.grayBg, textAlign: "center" }} />
+                <div style={{ fontSize: 9, color: C.gray, marginTop: 2 }}>No dia da falta</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Apoios compensados</label>
+                <input type="number" min="0" value={compensados} onChange={e => setCompensados(e.target.value)} placeholder="Ex: 4" style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 16, fontWeight: 800, color: C.dark, background: C.grayBg, textAlign: "center" }} />
+                <div style={{ fontSize: 9, color: C.gray, marginTop: 2 }}>Reagendados depois</div>
+              </div>
+            </div>
+
+            {perdidos > 0 && compensados > 0 && (
+              <div style={{ textAlign: "center", marginBottom: 12 }}>
+                <span style={{ display: "inline-block", padding: "6px 16px", borderRadius: 20, background: pctCalc >= 100 ? C.greenBg : pctCalc >= 50 ? C.yellowBg : C.redBg, color: pctCalc >= 100 ? C.green : pctCalc >= 50 ? "#E17055" : C.red, fontSize: 14, fontWeight: 900 }}>{pctCalc}% compensado</span>
+              </div>
+            )}
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 10, fontWeight: 700, color: C.gray, textTransform: "uppercase", letterSpacing: 1, display: "block", marginBottom: 4 }}>Detalhe da compensação</label>
+              <textarea value={detalhe} onChange={e => setDetalhe(e.target.value)} placeholder={"Ex: Maria S. reagendada para terça 17h\nJoão P. reagendado para quarta 9h\nAna R. reagendada para quinta 10h"} rows={4} style={{ width: "100%", padding: 12, borderRadius: 12, border: "2px solid " + C.grayLight, fontSize: 13, color: C.dark, background: C.grayBg, fontFamily: "'DM Sans', sans-serif", resize: "vertical" }} />
+              <div style={{ fontSize: 9, color: C.gray, marginTop: 2 }}>Nome das crianças, dia e hora do reagendamento</div>
+            </div>
+
+            {errMsg && <div style={{ background: C.redBg, color: C.red, padding: "8px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, marginBottom: 12 }}>⚠️ {errMsg}</div>}
+            <Btn onClick={submit} disabled={sub} variant="primary">{sub ? "A enviar..." : "Registar compensação"}</Btn>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════ THERAPIST VIEW ═══════════════════════ */
 function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEditAusencia }) {
   const [tab, setTab] = useState("inicio");
@@ -771,6 +879,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
   const [editPedido, setEditPedido] = useState(null);
   const [cancelando, setCancelando] = useState(null);
   const [quadIdx, setQuadIdx] = useState(null); // null = atual
+  const [showComp, setShowComp] = useState(null); // pedido a compensar
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
   const ap = data.resumoApoios && data.resumoApoios[String(terap.ID)] ? data.resumoApoios[String(terap.ID)].ef : 0;
   const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios, data.alteracoes);
@@ -1054,6 +1163,27 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                 <Card delay={0.22} style={{ background: "linear-gradient(135deg, #FFF9E6, " + C.white + ")", border: "1px solid #FDEBD0" }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 28, animation: "float 3s ease infinite" }}>⭐</span><div><div style={{ fontSize: 14, fontWeight: 800, color: "#E17055" }}>A ganhar 10€/apoio! Já tens +{m.eurosTotal}€</div><div style={{ fontSize: 12, color: C.darkSoft }}>Máximo atingido — continua!</div></div></div></Card>
               )}
             </div>
+            )}
+
+            {/* ═══ ASSIDUIDADE ═══ */}
+            {!isADM && (
+            <Card delay={0.26} style={{ marginTop: 8, background: m.assiduidadeOk ? "linear-gradient(135deg, " + C.greenBg + ", " + C.white + ")" : "linear-gradient(135deg, " + C.yellowBg + ", " + C.white + ")", border: "1px solid " + (m.assiduidadeOk ? "#b2f5ea" : "#FDEBD0") }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ position: "relative" }}>
+                  <Ring value={m.pctAssiduidade} max={100} size={52} stroke={5} color={m.assiduidadeOk ? C.green : C.yellow}>
+                    <span style={{ fontSize: 12, fontWeight: 900, color: m.assiduidadeOk ? C.green : "#E17055" }}>{m.pctAssiduidade}%</span>
+                  </Ring>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: m.assiduidadeOk ? C.green : "#E17055" }}>
+                    {m.assiduidadeOk ? "✅ Assiduidade OK — +1 dia de férias!" : "Assiduidade: " + m.pctAssiduidade + "% (falta ≥95%)"}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>
+                    {m.faltasEfetivas > 0 ? m.faltasEfetivas + " falta" + (m.faltasEfetivas !== 1 ? "s" : "") + " efetiva" + (m.faltasEfetivas !== 1 ? "s" : "") + (m.diasCompensados > 0 ? " (" + Math.round(m.diasCompensados) + "d compensado" + (m.diasCompensados !== 1 ? "s" : "") + ")" : "") : "Sem faltas neste período"}
+                  </div>
+                </div>
+              </div>
+            </Card>
             )}
 
             {/* Férias marcadas com mini-calendário */}
@@ -1679,6 +1809,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                 {p.Observações && <div style={{ fontSize: 12, color: C.darkSoft, fontStyle: "italic", marginTop: 4 }}>"{p.Observações}"</div>}
                 {p["Resposta Gestão"] && <div style={{ fontSize: 12, marginTop: 4, padding: "6px 10px", borderRadius: 8, background: p.Estado === "Rejeitado" ? C.redBg : C.greenBg, color: p.Estado === "Rejeitado" ? C.red : C.green, fontWeight: 600 }}>💬 Gestão: {p["Resposta Gestão"]}</div>}
                 <FileBadge url={p.Ficheiro} />
+                {p["Compensação Estado"] === "Aprovado" && (() => { const pct = Number(p["Comp Apoios Perdidos"]) > 0 ? Math.round((Number(p["Comp Apoios Compensados"]) / Number(p["Comp Apoios Perdidos"])) * 100) : 0; return <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: C.green }}>🔄 Compensada {pct}%</div>; })()}
+                {p["Compensação Estado"] === "Pendente" && <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: "#E17055" }}>⏳ Compensação pendente</div>}
               </Card>
             ); })}
           </div>
@@ -1707,6 +1839,31 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                 {passado && (p.Estado === "Pendente" || p.Estado === "Aprovado") && (
                   <div style={{ fontSize: 10, color: C.gray, marginTop: 6, fontStyle: "italic" }}>Data já passou. Para alterar, contacta a gestão.</div>
                 )}
+                {/* Compensação: mostrar estado ou botão */}
+                {(() => {
+                  const isCompensavel = p.Estado === "Aprovado" && passado && !p.Motivo.includes("Férias") && p.Motivo !== "Formação";
+                  const compEstado = p["Compensação Estado"];
+                  const dentroPrazo = (() => { if (!p["Data Fim"]) return false; const fim = new Date(p["Data Fim"]); const agora = new Date(); const diff = (agora - fim) / (1000*60*60*24); return diff <= 10; })();
+                  if (compEstado === "Aprovado") {
+                    const perdidos = Number(p["Comp Apoios Perdidos"] || 0);
+                    const compensados = Number(p["Comp Apoios Compensados"] || 0);
+                    const pct = perdidos > 0 ? Math.round((compensados / perdidos) * 100) : 0;
+                    return <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: C.greenBg, fontSize: 11, fontWeight: 700, color: C.green }}>🔄 Compensação aprovada · {pct}% ({compensados}/{perdidos} apoios)</div>;
+                  }
+                  if (compEstado === "Pendente") {
+                    return <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: C.yellowBg, fontSize: 11, fontWeight: 700, color: "#E17055" }}>⏳ Compensação pendente de aprovação</div>;
+                  }
+                  if (compEstado === "Rejeitado") {
+                    return <div style={{ marginTop: 6, padding: "6px 10px", borderRadius: 8, background: C.redBg, fontSize: 11, fontWeight: 700, color: C.red }}>✕ Compensação rejeitada</div>;
+                  }
+                  if (isCompensavel && dentroPrazo) {
+                    return <button onClick={() => setShowComp(p)} style={{ marginTop: 6, width: "100%", padding: "8px 0", borderRadius: 10, border: "1.5px dashed " + C.teal, background: C.tealLight, fontSize: 11, fontWeight: 700, color: C.tealDark, cursor: "pointer" }}>🔄 Compensar esta ausência</button>;
+                  }
+                  if (isCompensavel && !dentroPrazo && !compEstado) {
+                    return <div style={{ marginTop: 6, fontSize: 10, color: C.gray, fontStyle: "italic" }}>Prazo de compensação expirado (10 dias)</div>;
+                  }
+                  return null;
+                })()}
               </Card>
             ); })}
           </div>
@@ -1715,6 +1872,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
 
       {showForm && <AbsenceForm type={showForm} terap={terap} metrics={m} periodos={data.periodos} fecho={data.fecho} onSubmit={handleSubmit} onClose={() => setShowForm(null)} />}
       {editPedido && <EditPedidoForm pedido={editPedido} onSave={handleEdit} onClose={() => setEditPedido(null)} />}
+      {showComp && <CompensationForm pedido={showComp} onSubmit={(ln, compData) => { onEditAusencia(ln, compData); onRefresh(); }} onClose={() => setShowComp(null)} />}
 
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 420, background: C.white, borderTop: "1px solid " + C.grayLight, display: "flex", justifyContent: "space-around", padding: "6px 0 12px", boxShadow: "0 -4px 20px rgba(0,0,0,0.04)" }}>
         {tabs.map(tb => (
@@ -1758,6 +1916,15 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
     setUpd(null); onRefresh();
   };
 
+  const handleComp = async (ln, est) => {
+    setUpd("comp" + ln);
+    try {
+      await apiPost({ action: "validarCompensacao", linha: ln, estado: est });
+      onUpdateEstado(ln, null, null, { "Compensação Estado": est });
+    } catch (err) { alert("Erro: " + err.message); }
+    setUpd(null); onRefresh();
+  };
+
   const submitFalta = async () => {
     if (!faltaTer || !faltaInicio || !faltaFim) return;
     setFaltaSub(true);
@@ -1774,6 +1941,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   };
 
   const pend = data.ausencias.filter(a => a.Estado === "Pendente");
+  const compPendCount = data.ausencias.filter(a => a["Compensação Estado"] === "Pendente").length;
   const hist = data.ausencias.filter(a => a.Estado !== "Pendente");
   const histFilt = hist.filter(a => {
     if (filtro === "ferias") return a.Motivo.includes("Férias");
@@ -1826,7 +1994,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
     { id: "semana", icon: "📅", l: "Semana" },
     { id: "mes", icon: "🗓️", l: "Mês" },
     { id: "equipa", icon: "👥", l: "Equipa" },
-    { id: "pendentes", icon: "⏳", l: "Pedidos", badge: pend.length },
+    { id: "pendentes", icon: "⏳", l: "Pedidos", badge: pend.length + compPendCount },
     { id: "falta", icon: "⚠️", l: "Reg. Falta" },
     { id: "historico", icon: "📋", l: "Histórico" },
   ];
@@ -1891,7 +2059,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     const bgCol = letivo ? "#FFF0F3" : "#F0FFF4";
                     const fecho = fechoDia(dStr);
                     if (fecho) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.gray, background: bgCol }} title={"Fecho: " + fecho.Nome}>🔒</div>;
-                    const tFerMun = String(t["Feriado Municipal"] || "").trim();
+                    const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
                     if (tFerMun && dStr === tFerMun) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.blue, background: bgCol }} title="Feriado municipal">🏛️</div>;
                     const tHor = getHorario(data.horarios, t.ID);
                     const dObj = new Date(dStr);
@@ -1958,7 +2126,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       const bgCol = letivo ? "#FFF0F3" : "#F0FFF4";
                       const fecho = fechoDia(dStr);
                       if (fecho) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.gray, background: bgCol }}>🔒</div>;
-                      const tFerMun = String(t["Feriado Municipal"] || "").trim();
+                      const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
                       if (tFerMun && dStr === tFerMun) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.blue, background: bgCol }} title="Feriado municipal">🏛️</div>;
                       const tHor = getHorario(data.horarios, t.ID);
                       const dObj = new Date(dStr);
@@ -2024,7 +2192,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     const tHor = getHorario(data.horarios, t.ID);
                     const dObj = new Date(dStr);
                     if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
-                    const tFerMun = String(t["Feriado Municipal"] || "").trim();
+                    const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
                     if (tFerMun && dStr === tFerMun) { row.push("FER.MUN."); return; }
                     const aus = terapAusenteDia(t.ID, dStr);
                     if (aus) {
@@ -2236,10 +2404,52 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                 </div>
               </Card>
             ); })}
+
+            {/* ═══ COMPENSAÇÕES PENDENTES ═══ */}
+            {(() => {
+              const compPend = data.ausencias.filter(a => a["Compensação Estado"] === "Pendente");
+              if (compPend.length === 0) return null;
+              return (
+                <>
+                  <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "18px 0 10px" }}>🔄 Compensações pendentes <span style={{ background: C.blueBg, color: C.blue, padding: "2px 8px", borderRadius: 8, fontSize: 13, fontWeight: 800, marginLeft: 8 }}>{compPend.length}</span></h2>
+                  {compPend.map((p, i) => {
+                    const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta);
+                    const mi = motivoInfo(p.Motivo);
+                    const perdidos = Number(p["Comp Apoios Perdidos"] || 0);
+                    const compensados = Number(p["Comp Apoios Compensados"] || 0);
+                    const pct = perdidos > 0 ? Math.round((compensados / perdidos) * 100) : 0;
+                    return (
+                      <Card key={"comp" + i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + C.blue, borderRadius: "4px 20px 20px 4px" }}>
+                        <div style={{ marginBottom: 6 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t ? t.Nome : p.ID_Terapeuta}</div>
+                            <span style={{ background: mi.color + "18", color: mi.color, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>{mi.icon} {mi.short}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>Ausência: {fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {p["Dias Úteis"]}d</div>
+                        </div>
+                        <div style={{ background: C.grayBg, borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: C.dark }}>🔄 Compensação</span>
+                            <span style={{ padding: "3px 10px", borderRadius: 12, background: pct >= 100 ? C.greenBg : pct >= 50 ? C.yellowBg : C.redBg, color: pct >= 100 ? C.green : pct >= 50 ? "#E17055" : C.red, fontSize: 12, fontWeight: 900 }}>{pct}%</span>
+                          </div>
+                          <div style={{ display: "flex", gap: 12, fontSize: 12, color: C.darkSoft, marginBottom: 6 }}>
+                            <span>Perdidos: <strong style={{ color: C.red }}>{perdidos}</strong></span>
+                            <span>Compensados: <strong style={{ color: C.green }}>{compensados}</strong></span>
+                          </div>
+                          <div style={{ fontSize: 12, color: C.dark, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{p["Comp Detalhe"] || "(sem detalhe)"}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <Btn onClick={() => handleComp(p._linha, "Aprovado")} disabled={upd === "comp" + p._linha} variant="success" style={{ flex: 1, padding: 10 }}>✓ Validar</Btn>
+                          <Btn onClick={() => handleComp(p._linha, "Rejeitado")} disabled={upd === "comp" + p._linha} variant="danger" style={{ flex: 1, padding: 10 }}>✕ Rejeitar</Btn>
+                        </div>
+                      </Card>
+                    );
+                  })}
+                </>
+              );
+            })()}
           </div>
         )}
-
-        {/* ═══ TAB REGISTAR FALTA ═══ */}
         {adminTab === "falta" && (
           <div>
             <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>⚠️ Registar falta</h2>
@@ -2473,7 +2683,7 @@ function AppInner() {
   useEffect(() => { fetchData(); }, [fetchData]);
   const refresh = () => fetchData();
   const addAus = (n) => setData(p => ({ ...p, ausencias: [...p.ausencias, { ...n, _linha: p.ausencias.length + 2 }] }));
-  const updEst = (ln, est, obs) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, Estado: est, "Resposta Gestão": obs || "" } : a) }));
+  const updEst = (ln, est, obs, extra) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, ...(est ? { Estado: est } : {}), ...(obs ? { "Resposta Gestão": obs } : {}), ...(extra || {}) } : a) }));
   const editAus = (ln, changes) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, ...changes } : a) }));
 
   if (loading) return <Loading />;
