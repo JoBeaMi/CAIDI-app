@@ -237,7 +237,7 @@ function contarDiasTrabAus(ausList, hor) {
   return count;
 }
 
-function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
+function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensacoes) {
   const quads = buildQuadrimestres(periodos);
   const q = quadAtual(quads);
   if (!q) return emptyMetrics();
@@ -340,14 +340,16 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes) {
 
   // ── Assiduidade ──
   // Faltas que contam: baixa, falta justificada, falta injustificada (NÃO formação aprovada)
+  const compMap = {};
+  (compensacoes || []).forEach(c => { if (c.Linha_Ausencia) compMap[c.Linha_Ausencia] = c; });
   const ausAssiduidade = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= (hojeStr > q.qFim ? q.qFim : hojeStr) && a["Data Fim"] >= q.qInicio && a.Motivo !== "Formação" && !a.Motivo.includes("Férias"));
   const diasFaltaTotal = ausAssiduidade.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   // Compensações aprovadas: reduzem as faltas proporcionalmente
   const diasCompensados = ausAssiduidade.reduce((s, a) => {
-    const compEst = a["Compensação Estado"];
-    if (compEst !== "Aprovado") return s;
-    const perdidos = Number(a["Comp Apoios Perdidos"] || 0);
-    const compensados = Number(a["Comp Apoios Compensados"] || 0);
+    const comp = compMap[a._linha];
+    if (!comp || comp.Estado !== "Aprovado") return s;
+    const perdidos = Number(comp["Apoios Perdidos"] || 0);
+    const compensados = Number(comp["Apoios Compensados"] || 0);
     if (perdidos <= 0) return s;
     const pct = Math.min(compensados / perdidos, 1);
     return s + (Number(a["Dias Úteis"] || 0) * pct);
@@ -809,7 +811,7 @@ function CompensationForm({ pedido, onSubmit, onClose }) {
     if (!detalhe.trim() || detalhe.trim().length < 10) { setErrMsg("Descreve que crianças reagendaste e quando (mínimo 10 caracteres)"); return; }
     setSub(true); setErrMsg("");
     try {
-      await apiPost({ action: "registarCompensacao", linha: pedido._linha, apoiosPerdidos: Number(perdidos), apoiosCompensados: Number(compensados), detalhe: detalhe.trim() });
+      await apiPost({ action: "registarCompensacao", linha: pedido._linha, terapId: pedido.ID_Terapeuta, nome: pedido.Nome, motivoAusencia: pedido.Motivo, dataAusencia: pedido["Data Início"], apoiosPerdidos: Number(perdidos), apoiosCompensados: Number(compensados), detalhe: detalhe.trim() });
       onSubmit(pedido._linha, { "Compensação Estado": "Pendente", "Comp Apoios Perdidos": Number(perdidos), "Comp Apoios Compensados": Number(compensados), "Comp Detalhe": detalhe.trim() });
       setDone(true);
       setTimeout(onClose, 1800);
@@ -882,7 +884,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
   const [showComp, setShowComp] = useState(null); // pedido a compensar
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
   const ap = data.resumoApoios && data.resumoApoios[String(terap.ID)] ? data.resumoApoios[String(terap.ID)].ef : 0;
-  const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios, data.alteracoes);
+  const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
   const saudePedidos = aus.filter(a => !a.Motivo.includes("Férias")).sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const pend = aus.filter(p => p.Estado === "Pendente").length;
@@ -1941,7 +1943,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   };
 
   const pend = data.ausencias.filter(a => a.Estado === "Pendente");
-  const compPendCount = data.ausencias.filter(a => a["Compensação Estado"] === "Pendente").length;
+  const compPendCount = (data.compensacoes || []).filter(c => c.Estado === "Pendente").length;
   const hist = data.ausencias.filter(a => a.Estado !== "Pendente");
   const histFilt = hist.filter(a => {
     if (filtro === "ferias") return a.Motivo.includes("Férias");
@@ -2244,7 +2246,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
             const resumo = data.resumoApoios && data.resumoApoios[String(t.ID)] || { ef: 0, efPorQuad: {} };
             const efAtual = resumo.ef || 0;
-            if (!qx) return calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes);
+            if (!qx) return calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
             // Para quadrimestre específico, usar efPorQuad
             const ef = resumo.efPorQuad && resumo.efPorQuad[qx.label] ? resumo.efPorQuad[qx.label] : (qx.label === (allQuads[currentIdx] || {}).label ? efAtual : 0);
             const fallbackHL = Number(t["Horas Letivas"]) || 0;
@@ -2270,7 +2272,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             const euros10 = ef > mE3 ? ef - mE3 : 0;
             const eurosTotal = (euros5 * 5) + (euros10 * 10);
             const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
-            const mBase = calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes);
+            const mBase = calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
             return { ...mBase, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, sc, eurosTotal, dB, quad: qx, passado: hojeStr > qx.qFim };
           };
 
@@ -2376,7 +2378,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "0 0 10px" }}>Pedidos pendentes {pend.length > 0 && <span style={{ background: C.redBg, color: C.red, padding: "2px 8px", borderRadius: 8, fontSize: 13, fontWeight: 800, marginLeft: 8 }}>{pend.length}</span>}</h2>
             {pend.length === 0 ? (
               <Card style={{ background: C.greenBg, border: "1px solid #b2f5ea" }}><div style={{ textAlign: "center", fontSize: 14, fontWeight: 700, color: C.green }}>✓ Sem pedidos pendentes!</div></Card>
-            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0, data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios, data.alteracoes) : null; return (
+            ) : pend.map((p, i) => { const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta); const mi = motivoInfo(p.Motivo); const isLetivo = p["Em Letivo?"] === "Sim" || (p.Observações && p.Observações.indexOf("⚠️ LETIVO") >= 0); const m2t = t ? calc(t, data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0, data.ausencias.filter(a => a.ID_Terapeuta === t.ID), data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes) : null; return (
               <Card key={i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px" }}>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2407,25 +2409,26 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
 
             {/* ═══ COMPENSAÇÕES PENDENTES ═══ */}
             {(() => {
-              const compPend = data.ausencias.filter(a => a["Compensação Estado"] === "Pendente");
+              const compPend = (data.compensacoes || []).filter(c => c.Estado === "Pendente");
               if (compPend.length === 0) return null;
               return (
                 <>
                   <h2 style={{ fontSize: 16, fontWeight: 900, color: C.dark, margin: "18px 0 10px" }}>🔄 Compensações pendentes <span style={{ background: C.blueBg, color: C.blue, padding: "2px 8px", borderRadius: 8, fontSize: 13, fontWeight: 800, marginLeft: 8 }}>{compPend.length}</span></h2>
-                  {compPend.map((p, i) => {
-                    const t = data.terapeutas.find(x => x.ID === p.ID_Terapeuta);
-                    const mi = motivoInfo(p.Motivo);
-                    const perdidos = Number(p["Comp Apoios Perdidos"] || 0);
-                    const compensados = Number(p["Comp Apoios Compensados"] || 0);
+                  {compPend.map((cp, i) => {
+                    const ausRef = data.ausencias.find(a => a._linha === cp.Linha_Ausencia);
+                    const t = data.terapeutas.find(x => x.ID === cp.ID_Terapeuta);
+                    const mi = ausRef ? motivoInfo(ausRef.Motivo) : { icon: "❓", color: C.gray, short: "?" };
+                    const perdidos = Number(cp["Apoios Perdidos"] || 0);
+                    const compensados = Number(cp["Apoios Compensados"] || 0);
                     const pct = perdidos > 0 ? Math.round((compensados / perdidos) * 100) : 0;
                     return (
                       <Card key={"comp" + i} delay={i * 0.05} style={{ marginBottom: 8, borderLeft: "4px solid " + C.blue, borderRadius: "4px 20px 20px 4px" }}>
                         <div style={{ marginBottom: 6 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t ? t.Nome : p.ID_Terapeuta}</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{t ? t.Nome : cp.ID_Terapeuta}</div>
                             <span style={{ background: mi.color + "18", color: mi.color, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700 }}>{mi.icon} {mi.short}</span>
                           </div>
-                          <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>Ausência: {fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {p["Dias Úteis"]}d</div>
+                          {ausRef && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>Ausência: {fmtDF(ausRef["Data Início"])} → {fmtDF(ausRef["Data Fim"])} · {ausRef["Dias Úteis"]}d</div>}
                         </div>
                         <div style={{ background: C.grayBg, borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -2436,11 +2439,11 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                             <span>Perdidos: <strong style={{ color: C.red }}>{perdidos}</strong></span>
                             <span>Compensados: <strong style={{ color: C.green }}>{compensados}</strong></span>
                           </div>
-                          <div style={{ fontSize: 12, color: C.dark, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{p["Comp Detalhe"] || "(sem detalhe)"}</div>
+                          <div style={{ fontSize: 12, color: C.dark, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{cp.Detalhe || "(sem detalhe)"}</div>
                         </div>
                         <div style={{ display: "flex", gap: 8 }}>
-                          <Btn onClick={() => handleComp(p._linha, "Aprovado")} disabled={upd === "comp" + p._linha} variant="success" style={{ flex: 1, padding: 10 }}>✓ Validar</Btn>
-                          <Btn onClick={() => handleComp(p._linha, "Rejeitado")} disabled={upd === "comp" + p._linha} variant="danger" style={{ flex: 1, padding: 10 }}>✕ Rejeitar</Btn>
+                          <Btn onClick={() => handleComp(cp._linha, "Aprovado")} disabled={upd === "comp" + cp._linha} variant="success" style={{ flex: 1, padding: 10 }}>✓ Validar</Btn>
+                          <Btn onClick={() => handleComp(cp._linha, "Rejeitado")} disabled={upd === "comp" + cp._linha} variant="danger" style={{ flex: 1, padding: 10 }}>✕ Rejeitar</Btn>
                         </div>
                       </Card>
                     );
@@ -2521,7 +2524,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               return terFilt.map(t => {
                 const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
                 const ap2 = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
-                const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios, data.alteracoes);
+                const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
                 const tIsADM = t["Área"] === "ADM";
                 const pedidos = a2.sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
                 return (
@@ -2676,7 +2679,20 @@ function AppInner() {
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError(null);
-    try { const r = await apiGet("tudo"); setData(r); } catch (err) { setError(err.message || "Erro desconhecido"); setData(null); }
+    try {
+      const r = await apiGet("tudo");
+      // Enriquecer ausências com dados de compensação
+      if (r.compensacoes && r.compensacoes.length > 0) {
+        const compByLinha = {};
+        r.compensacoes.forEach(c => { if (c.Linha_Ausencia) compByLinha[c.Linha_Ausencia] = c; });
+        r.ausencias = r.ausencias.map(a => {
+          const comp = compByLinha[a._linha];
+          if (!comp) return a;
+          return { ...a, "Compensação Estado": comp.Estado, "Comp Apoios Perdidos": comp["Apoios Perdidos"], "Comp Apoios Compensados": comp["Apoios Compensados"], "Comp Detalhe": comp.Detalhe, _compLinha: comp._linha };
+        });
+      }
+      setData(r);
+    } catch (err) { setError(err.message || "Erro desconhecido"); setData(null); }
     setLoading(false);
   }, []);
 
