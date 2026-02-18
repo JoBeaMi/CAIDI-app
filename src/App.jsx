@@ -340,16 +340,22 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
 
   // ── Assiduidade ──
   // Faltas que contam: baixa, falta justificada, falta injustificada (NÃO formação aprovada)
-  const compMap = {};
-  (compensacoes || []).forEach(c => { if (c.Linha_Ausencia) compMap[c.Linha_Ausencia] = c; });
+  // Agrupar compensações por Linha_Ausencia
+  const compGrouped = {};
+  (compensacoes || []).forEach(c => {
+    const key = String(c.Linha_Ausencia);
+    if (!compGrouped[key]) compGrouped[key] = { linhas: [], estado: c.Estado, perdidos: Number(c["Apoios Perdidos"] || 0) };
+    compGrouped[key].linhas.push(c);
+    compGrouped[key].estado = c.Estado; // todos têm o mesmo estado
+  });
   const ausAssiduidade = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= (hojeStr > q.qFim ? q.qFim : hojeStr) && a["Data Fim"] >= q.qInicio && a.Motivo !== "Formação" && !a.Motivo.includes("Férias"));
   const diasFaltaTotal = ausAssiduidade.reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   // Compensações aprovadas: reduzem as faltas proporcionalmente
   const diasCompensados = ausAssiduidade.reduce((s, a) => {
-    const comp = compMap[a._linha];
-    if (!comp || comp.Estado !== "Aprovado") return s;
-    const perdidos = Number(comp["Apoios Perdidos"] || 0);
-    const compensados = Number(comp["Apoios Compensados"] || 0);
+    const grupo = compGrouped[String(a._linha)];
+    if (!grupo || grupo.estado !== "Aprovado") return s;
+    const perdidos = grupo.perdidos;
+    const compensados = grupo.linhas.length; // cada linha = 1 criança compensada
     if (perdidos <= 0) return s;
     const pct = Math.min(compensados / perdidos, 1);
     return s + (Number(a["Dias Úteis"] || 0) * pct);
@@ -2785,14 +2791,19 @@ function AppInner() {
     setLoading(true); setError(null);
     try {
       const r = await apiGet("tudo");
-      // Enriquecer ausências com dados de compensação
+      // Enriquecer ausências com dados de compensação (agrupados)
       if (r.compensacoes && r.compensacoes.length > 0) {
-        const compByLinha = {};
-        r.compensacoes.forEach(c => { if (c.Linha_Ausencia) compByLinha[c.Linha_Ausencia] = c; });
+        const compGrouped = {};
+        r.compensacoes.forEach(c => {
+          const key = String(c.Linha_Ausencia);
+          if (!compGrouped[key]) compGrouped[key] = { linhas: [], estado: c.Estado, perdidos: Number(c["Apoios Perdidos"] || 0) };
+          compGrouped[key].linhas.push(c);
+          compGrouped[key].estado = c.Estado;
+        });
         r.ausencias = r.ausencias.map(a => {
-          const comp = compByLinha[a._linha];
-          if (!comp) return a;
-          return { ...a, "Compensação Estado": comp.Estado, "Comp Apoios Perdidos": comp["Apoios Perdidos"], "Comp Apoios Compensados": comp["Apoios Compensados"], "Comp Detalhe": comp.Detalhe, _compLinha: comp._linha };
+          const grupo = compGrouped[String(a._linha)];
+          if (!grupo) return a;
+          return { ...a, "Compensação Estado": grupo.estado, "Comp Apoios Perdidos": grupo.perdidos, "Comp Apoios Compensados": grupo.linhas.length };
         });
       }
       setData(r);
