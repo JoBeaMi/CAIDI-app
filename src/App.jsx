@@ -721,9 +721,8 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     
     // Para cada semana: verificar se TODOS os 5 dias úteis estão cobertos
     // Coberto = no pedido, OU fecho, OU feriado, OU dia em que não trabalha
-    // Se tudo coberto → semana inteira sem CAIDI → obrigatórias
-    let todasSemanasCobertas = true;
-    const semsIncompletas = [];
+    const semanasCompletas = []; // semanas onde tudo está coberto → obrigatórias
+    const semanasIncompletas = []; // semanas com gaps → bónus/isolado
     const dayNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
     
     Object.entries(semanas).forEach(([monKey, diasPedido]) => {
@@ -735,63 +734,69 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
         wd.setDate(wd.getDate() + i);
         const wds = wd.toISOString().slice(0,10);
         const dow = wd.getDay();
-        // Este dia está coberto se: é fecho, é feriado, não trabalha nesse dia, ou está no pedido
         const coberto = fechoS.has(wds) || isFeriadoTerap(wds, metrics.feriadoMun) || !trabalhaDia(hor, dow) || diasPedidoSet.has(wds);
         if (!coberto) {
           diasNaoCobertos.push({ date: wds, dow });
         }
       }
       
-      if (diasNaoCobertos.length > 0) {
-        todasSemanasCobertas = false;
-        semsIncompletas.push({ weekOf: monKey, gaps: diasNaoCobertos.map(d2 => dayNames[d2.dow]) });
+      if (diasNaoCobertos.length === 0) {
+        semanasCompletas.push(monKey);
+      } else {
+        semanasIncompletas.push({ weekOf: monKey, gaps: diasNaoCobertos.map(d2 => dayNames[d2.dow]), dias: diasPedido });
       }
     });
     
-    if (todasSemanasCobertas) {
-      // Cobre todos os dias de trabalho → verificar se selecionou 2ª a 6ª
-      const semKeys = Object.keys(semanas);
-      let datasCorretas = true;
-      const semsParaCorrigir = [];
-      const dayNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
-      
-      semKeys.forEach(monKey => {
-        // Verificar se todos os 5 dias úteis da semana estão no pedido (excl. fecho/feriados)
-        for (let i = 0; i < 5; i++) {
-          const wd = new Date(monKey + "T12:00:00");
-          wd.setDate(wd.getDate() + i);
-          const wds = wd.toISOString().slice(0,10);
-          const dow = wd.getDay();
-          if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun)) {
-            // Este dia útil devia estar no pedido
-            if (!pedidoDias.find(dd => dd.date === wds)) {
-              datasCorretas = false;
-              if (!semsParaCorrigir.find(s => s.weekOf === monKey)) {
-                // Calcular 2ª e 6ª desta semana
-                const mon = new Date(monKey + "T12:00:00");
-                const fri = new Date(mon); fri.setDate(fri.getDate() + 4);
-                semsParaCorrigir.push({ weekOf: monKey, de: mon.toISOString().slice(0,10), ate: fri.toISOString().slice(0,10) });
-              }
+    // Contar dias em semanas completas vs incompletas
+    const diasEmSemanasCompletas = semanasCompletas.reduce((sum, monKey) => sum + semanas[monKey].length, 0);
+    const diasEmSemanasIncompletas = semanasIncompletas.reduce((sum, si) => sum + si.dias.length, 0);
+    
+    // Se há semanas completas: verificar se selecionou 2ª a 6ª nessas semanas
+    let devExpandir = false;
+    const semsParaCorrigir = [];
+    semanasCompletas.forEach(monKey => {
+      for (let i = 0; i < 5; i++) {
+        const wd = new Date(monKey + "T12:00:00");
+        wd.setDate(wd.getDate() + i);
+        const wds = wd.toISOString().slice(0,10);
+        if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun)) {
+          if (!pedidoDias.find(dd => dd.date === wds)) {
+            devExpandir = true;
+            if (!semsParaCorrigir.find(s => s.weekOf === monKey)) {
+              const mon = new Date(monKey + "T12:00:00");
+              const fri = new Date(mon); fri.setDate(fri.getDate() + 4);
+              semsParaCorrigir.push({ weekOf: monKey, de: mon.toISOString().slice(0,10), ate: fri.toISOString().slice(0,10) });
             }
           }
         }
-      });
-      
-      if (datasCorretas) {
-        // Selecionou 2ª-6ª corretamente → obrigatórias, tudo ok
-        return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, devExpandir: false };
+      }
+    });
+    
+    if (devExpandir) {
+      return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, devExpandir: true, semsParaCorrigir };
+    }
+    
+    // Decisão sobre dias em semanas incompletas
+    if (diasEmSemanasIncompletas === 0) {
+      // Tudo em semanas completas → obrigatórias, tudo ok
+      return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, devExpandir: false };
+    }
+    
+    // Quantos dias isolados (bónus) a pessoa pode usar?
+    // = bónus restantes + resíduo obrigatório (se oR < 5, os dias que não cabem numa semana)
+    const residuoObrig = metrics.oR < 5 ? metrics.oR % 5 : 0;
+    const diasIsoladosPermitidos = metrics.bR + residuoObrig;
+    
+    if (diasEmSemanasIncompletas <= diasIsoladosPermitidos) {
+      // Cabe nos isolados permitidos → aceitar
+      if (semanasCompletas.length > 0) {
+        return { tipo: "misto", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, devExpandir: false, diasObrig: diasEmSemanasCompletas, diasBonus: diasEmSemanasIncompletas };
       } else {
-        // Cobriu dias de trabalho mas não selecionou semana completa → pedir para corrigir
-        return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, devExpandir: true, semsParaCorrigir };
+        return { tipo: "bonus", isolado: false, semIncompleta: null, diasReais: pedidoDias.length };
       }
     } else {
-      if (metrics.bR > 0) {
-        // Tem bónus → usar bónus (sem aviso)
-        return { tipo: "bonus", isolado: false, semIncompleta: null, diasReais: pedidoDias.length };
-      } else {
-        // Sem bónus → obrigatórias com flag de isolado
-        return { tipo: "obrigatorias", isolado: true, semIncompleta: semsIncompletas, diasReais: pedidoDias.length };
-      }
+      // Não cabe → bloquear
+      return { tipo: semanasCompletas.length > 0 ? "misto" : "obrigatorias", isolado: true, semIncompleta: semanasIncompletas, diasReais: pedidoDias.length, devExpandir: false, diasObrig: diasEmSemanasCompletas, diasBonus: diasEmSemanasIncompletas, diasIsoladosPermitidos };
     }
   })();
 
@@ -812,15 +817,10 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
         setErrMsg("Não tens dias suficientes. Restam " + restam + " dias de férias, mas este pedido usa " + diasNovoPedido + ".");
         return;
       }
-      // Validação específica: dias isolados vs semana completa
-      if (feriasAnalise.tipo === "bonus") {
-        if (diasNovoPedido > metrics.bR) {
-          const msg = metrics.bR > 0
-            ? "Só podes usar mais " + metrics.bR + " dia" + (metrics.bR !== 1 ? "s" : "") + " isoladamente. Os restantes dias têm de ser marcados em semanas completas (2ª a 6ª)."
-            : "Já não tens dias para usar isoladamente. Os restantes dias têm de ser marcados em semanas completas (2ª a 6ª).";
-          setErrMsg(msg);
-          return;
-        }
+      // Validação: dias isolados
+      if (feriasAnalise.isolado) {
+        setErrMsg("Já não tens dias suficientes para usar isoladamente. Marca em semanas completas (2ª a 6ª).");
+        return;
       }
     }
     setSub(true); setErrMsg("");
@@ -839,7 +839,9 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
       if (isFerias) {
         mot = feriasAnalise.tipo === "bonus" ? "Férias (Bónus)" : "Férias (Obrigatórias)";
       }
-      const notaIsolado = isFerias && feriasAnalise.isolado ? " [⚠️ DIAS ISOLADOS SEM BÓNUS]" : "";
+      const notaIsolado = isFerias && feriasAnalise.tipo === "misto" && feriasAnalise.diasBonus > 0 
+        ? " [" + feriasAnalise.diasObrig + "d obrig. + " + feriasAnalise.diasBonus + "d bónus]" 
+        : isFerias && feriasAnalise.isolado ? " [⚠️ DIAS ISOLADOS SEM BÓNUS]" : "";
       const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal + notaIsolado, periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
       const linkReal = (resp && resp.ficheiro && resp.ficheiro.indexOf("http") === 0) ? resp.ficheiro : "";
       onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
@@ -934,14 +936,20 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
                 </div>
               </div>
             )}
-            {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR + metrics.bR} dias de férias</strong> por marcar{metrics.bR > 0 ? ". Podes usar " + metrics.bR + " dia" + (metrics.bR !== 1 ? "s" : "") + " isoladamente." : ". Marca em semanas completas (2ª a 6ª)."}</div>}
+            {isFerias && (() => {
+              const residuoObrig = metrics.oR < 5 ? metrics.oR % 5 : 0;
+              const diasIsoladosPermitidos = metrics.bR + residuoObrig;
+              return <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR + metrics.bR} dias de férias</strong> por marcar{diasIsoladosPermitidos > 0 ? ". Podes usar " + diasIsoladosPermitidos + " dia" + (diasIsoladosPermitidos !== 1 ? "s" : "") + " isoladamente." : ". Marca em semanas completas (2ª a 6ª)."}</div>;
+            })()}
             {isFerias && fD.inicio && fD.fim && (() => {
               const fechoSetCheck = buildFechoSet(fecho);
               const diasCheck = contarDiasFerias(fD.inicio, fD.fim, fechoSetCheck, metrics.feriadoMun);
               const totalDisp = (Number(terap["Dias Férias"]) || 22) + metrics.dBn;
               const jaUsados = metrics.fU + metrics.bU;
               const ultrapassaTotal = jaUsados + diasCheck > totalDisp;
-              const ultrapassaIsolados = feriasAnalise.tipo === "bonus" && diasCheck > metrics.bR;
+              const residuoObrig = metrics.oR < 5 ? metrics.oR % 5 : 0;
+              const diasIsoladosPermitidos = metrics.bR + residuoObrig;
+              const ultrapassaIsolados = feriasAnalise.isolado;
               if (ultrapassaTotal) return (
                 <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
                   <div style={{ color: C.red }}>🚫 Sem dias suficientes</div>
@@ -952,8 +960,8 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
                 <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
                   <div style={{ color: C.red }}>🚫 Dias isolados esgotados</div>
                   <div style={{ fontSize: 12, fontWeight: 500, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
-                    {metrics.bR > 0 
-                      ? "Só podes usar mais " + metrics.bR + " dia" + (metrics.bR !== 1 ? "s" : "") + " isoladamente, mas este pedido usa " + diasCheck + ". "
+                    {diasIsoladosPermitidos > 0
+                      ? "Podes usar " + diasIsoladosPermitidos + " dia" + (diasIsoladosPermitidos !== 1 ? "s" : "") + " isoladamente, mas este pedido precisa de mais. "
                       : "Já não tens dias para usar isoladamente. "
                     }
                     Os restantes dias têm de ser marcados em <strong>semanas completas (2ª a 6ª)</strong>.
@@ -976,6 +984,11 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
                     → Seleciona {fmtDF(s.de)} a {fmtDF(s.ate)}
                   </div>
                 ))}
+              </div>
+            )}
+            {feriasAnalise.tipo === "misto" && !feriasAnalise.isolado && feriasAnalise.diasBonus > 0 && (
+              <div style={{ background: C.tealLight, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid " + C.tealSoft }}>
+                <div style={{ color: C.tealDark }}>📋 {feriasAnalise.diasObrig}d em semana completa + {feriasAnalise.diasBonus}d isolado{feriasAnalise.diasBonus !== 1 ? "s" : ""}</div>
               </div>
             )}
             {feriasAnalise.isolado && (
@@ -1002,7 +1015,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
                 const totalDispBtn = (Number(terap["Dias Férias"]) || 22) + metrics.dBn;
                 const jaUsadosBtn = metrics.fU + metrics.bU;
                 if (jaUsadosBtn + diasBtn > totalDispBtn) { btnDisabled = true; btnLabel = "Sem dias suficientes"; }
-                else if (feriasAnalise.tipo === "bonus" && diasBtn > metrics.bR) { btnDisabled = true; btnLabel = "Dias isolados esgotados"; }
+                else if (feriasAnalise.isolado) { btnDisabled = true; btnLabel = "Dias isolados esgotados"; }
               }
               return <Btn onClick={submit} disabled={btnDisabled} variant={btnV[type]}>{btnLabel}</Btn>;
             })()}
