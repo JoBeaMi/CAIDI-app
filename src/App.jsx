@@ -799,6 +799,30 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     if (!fD.inicio || !fD.fim) return;
     if (isFerias && emLetivo && !justLetivo.trim()) { setErrMsg("Pedido em período letivo — indica o motivo da exceção."); return; }
     if (isFerias && feriasAnalise.devExpandir) { setErrMsg("Seleciona de 2ª a 6ª para cobrir a semana completa."); return; }
+    if (isFerias && feriasAnalise.isolado) { setErrMsg("Já não tens dias isolados. Marca em semanas completas (2ª a 6ª)."); return; }
+    
+    // Validar se não ultrapassa total de férias disponível
+    if (isFerias) {
+      const totalDisponivel = (Number(terap["Dias Férias"]) || 22) + metrics.dBn;
+      const jaUsados = metrics.fU + metrics.bU;
+      const fechoSetLocal2 = buildFechoSet(fecho);
+      const diasNovoPedido = contarDiasFerias(fD.inicio, fD.fim, fechoSetLocal2, metrics.feriadoMun);
+      if (jaUsados + diasNovoPedido > totalDisponivel) {
+        const restam = Math.max(totalDisponivel - jaUsados, 0);
+        setErrMsg("Não tens dias suficientes. Restam " + restam + " dias de férias, mas este pedido usa " + diasNovoPedido + ".");
+        return;
+      }
+      // Validação específica: dias isolados vs semana completa
+      if (feriasAnalise.tipo === "bonus") {
+        if (diasNovoPedido > metrics.bR) {
+          const msg = metrics.bR > 0
+            ? "Só podes usar mais " + metrics.bR + " dia" + (metrics.bR !== 1 ? "s" : "") + " isoladamente. Os restantes dias têm de ser marcados em semanas completas (2ª a 6ª)."
+            : "Já não tens dias para usar isoladamente. Os restantes dias têm de ser marcados em semanas completas (2ª a 6ª).";
+          setErrMsg(msg);
+          return;
+        }
+      }
+    }
     setSub(true); setErrMsg("");
     const fechoSetLocal = buildFechoSet(fecho);
     let dias = isFerias ? contarDiasFerias(fD.inicio, fD.fim, fechoSetLocal, metrics.feriadoMun) : contarDiasUteis(fD.inicio, fD.fim);
@@ -910,7 +934,34 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
                 </div>
               </div>
             )}
-            {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR + metrics.bR} dias de férias</strong> por marcar</div>}
+            {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR + metrics.bR} dias de férias</strong> por marcar{metrics.bR > 0 ? ". Podes usar " + metrics.bR + " dia" + (metrics.bR !== 1 ? "s" : "") + " isoladamente." : ". Marca em semanas completas (2ª a 6ª)."}</div>}
+            {isFerias && fD.inicio && fD.fim && (() => {
+              const fechoSetCheck = buildFechoSet(fecho);
+              const diasCheck = contarDiasFerias(fD.inicio, fD.fim, fechoSetCheck, metrics.feriadoMun);
+              const totalDisp = (Number(terap["Dias Férias"]) || 22) + metrics.dBn;
+              const jaUsados = metrics.fU + metrics.bU;
+              const ultrapassaTotal = jaUsados + diasCheck > totalDisp;
+              const ultrapassaIsolados = feriasAnalise.tipo === "bonus" && diasCheck > metrics.bR;
+              if (ultrapassaTotal) return (
+                <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
+                  <div style={{ color: C.red }}>🚫 Sem dias suficientes</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: C.darkSoft, marginTop: 4 }}>Restam {Math.max(totalDisp - jaUsados, 0)} dias de férias, mas este pedido usa {diasCheck}.</div>
+                </div>
+              );
+              if (ultrapassaIsolados) return (
+                <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
+                  <div style={{ color: C.red }}>🚫 Dias isolados esgotados</div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
+                    {metrics.bR > 0 
+                      ? "Só podes usar mais " + metrics.bR + " dia" + (metrics.bR !== 1 ? "s" : "") + " isoladamente, mas este pedido usa " + diasCheck + ". "
+                      : "Já não tens dias para usar isoladamente. "
+                    }
+                    Os restantes dias têm de ser marcados em <strong>semanas completas (2ª a 6ª)</strong>.
+                  </div>
+                </div>
+              );
+              return null;
+            })()}
             {isFerias && fechoNoPedido > 0 && (
               <div style={{ background: C.grayBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.darkSoft, fontWeight: 600, marginBottom: 16, border: "1px solid " + C.grayLight }}>🔒 Este período inclui <strong>{fechoNoPedido} dia{fechoNoPedido > 1 ? "s" : ""} de fecho</strong> do CAIDI — já descontado{fechoNoPedido > 1 ? "s" : ""} automaticamente.</div>
             )}
@@ -928,22 +979,33 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
               </div>
             )}
             {feriasAnalise.isolado && (
-              <div style={{ background: C.yellowBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #FDEBD0" }}>
-                <div style={{ color: "#E17055" }}>⚠️ Dias isolados</div>
+              <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
+                <div style={{ color: C.red }}>🚫 Dias isolados esgotados</div>
                 <div style={{ fontSize: 12, fontWeight: 500, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
-                  Os teus dias de férias isolados já foram usados. As férias restantes devem ser marcadas em dias consecutivos (semanas completas, 2ª a 6ª).
+                  Já não tens dias para usar isoladamente. Os restantes dias têm de ser marcados em <strong>semanas completas (2ª a 6ª)</strong>.
                 </div>
                 {feriasAnalise.semIncompleta && feriasAnalise.semIncompleta.map((w, i) => (
-                  <div key={i} style={{ fontSize: 11, color: C.darkSoft, marginTop: 3 }}>Semana de {fmtDF(w.weekOf)}: faltam {w.gaps.join(", ")}</div>
+                  <div key={i} style={{ fontSize: 11, color: C.red, marginTop: 3, fontWeight: 700 }}>→ Faltam {w.gaps.join(", ")} na semana de {fmtDF(w.weekOf)}</div>
                 ))}
-                <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 4, fontStyle: "italic" }}>Podes submeter, mas a gestão poderá rejeitar.</div>
               </div>
             )}
             {type === "baixa" && <div style={{ background: C.purpleBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.purple, fontWeight: 600, marginBottom: 16 }}>🏥 A baixa <strong>não desconta</strong> férias. O objetivo ajusta-se.</div>}
             {type === "formacao" && <div style={{ background: C.orangeBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.orange, fontWeight: 600, marginBottom: 16 }}>🎓 Formações <strong>não descontam</strong> férias nem o objetivo.</div>}
             {type === "falta" && motivo === "Falta Injustificada" && <div style={{ background: C.redBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.red, fontWeight: 600, marginBottom: 16 }}>⚠️ Faltas injustificadas podem ter <strong>impacto na avaliação</strong>.</div>}
             {errMsg && <div style={{ background: C.redBg, color: C.red, padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>⚠️ {errMsg}</div>}
-            <Btn onClick={submit} disabled={sub || (isFerias && feriasAnalise.devExpandir)} variant={btnV[type]}>{sub ? "A enviar..." : (isFerias && feriasAnalise.devExpandir) ? "Ajusta as datas (2ª a 6ª)" : "Enviar pedido"}</Btn>
+            {(() => {
+              let btnDisabled = sub || (isFerias && feriasAnalise.devExpandir) || (isFerias && feriasAnalise.isolado);
+              let btnLabel = sub ? "A enviar..." : (isFerias && feriasAnalise.devExpandir) ? "Ajusta as datas (2ª a 6ª)" : (isFerias && feriasAnalise.isolado) ? "Marca semana completa" : "Enviar pedido";
+              if (isFerias && fD.inicio && fD.fim && !feriasAnalise.devExpandir) {
+                const fechoSetBtn = buildFechoSet(fecho);
+                const diasBtn = contarDiasFerias(fD.inicio, fD.fim, fechoSetBtn, metrics.feriadoMun);
+                const totalDispBtn = (Number(terap["Dias Férias"]) || 22) + metrics.dBn;
+                const jaUsadosBtn = metrics.fU + metrics.bU;
+                if (jaUsadosBtn + diasBtn > totalDispBtn) { btnDisabled = true; btnLabel = "Sem dias suficientes"; }
+                else if (feriasAnalise.tipo === "bonus" && diasBtn > metrics.bR) { btnDisabled = true; btnLabel = "Dias isolados esgotados"; }
+              }
+              return <Btn onClick={submit} disabled={btnDisabled} variant={btnV[type]}>{btnLabel}</Btn>;
+            })()}
           </>
         )}
       </div>
@@ -1709,7 +1771,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
               </div>
               <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: mq.diff >= 0 ? C.greenBg : C.yellowBg, textAlign: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: mq.diff >= 0 ? C.green : C.red }}>
-                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingida!" : "❌ Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
+                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingido!" : "❌ Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
                 </span>
                 {!mq.passado && mq.proj > 0 && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>📈 Projeção: ~{mq.proj} apoios até ao fim</div>}
               </div>
@@ -1970,19 +2032,24 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                 const totalDias = (Number(terap["Dias Férias"]) || 22) + m.dBn;
                 const marcados = m.fU + m.bU;
                 const restam = Math.max(totalDias - marcados, 0);
+                const ultrapassou = marcados > totalDias;
                 return (
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                       <span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>🌴 Dias de férias</span>
-                      <span style={{ fontSize: 14, fontWeight: 800, color: C.teal }}>{marcados}/{totalDias}</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: ultrapassou ? C.red : C.teal }}>{marcados}/{totalDias}</span>
                     </div>
                     <div style={{ height: 10, background: C.grayLight, borderRadius: 6, overflow: "hidden", display: "flex" }}>
                       {m.tF > 0 && <div style={{ width: Math.min(totalDias > 0 ? (m.tF / totalDias) * 100 : 0, 100) + "%", background: C.gray, height: "100%" }} />}
-                      {(marcados - m.tF) > 0 && <div style={{ width: Math.min(totalDias > 0 ? ((marcados - m.tF) / totalDias) * 100 : 0, 100) + "%", background: C.teal, height: "100%" }} />}
+                      {(marcados - m.tF) > 0 && <div style={{ width: Math.min(totalDias > 0 ? ((marcados - m.tF) / totalDias) * 100 : 0, 100) + "%", background: ultrapassou ? C.red : C.teal, height: "100%" }} />}
                     </div>
                     <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 4 }}>
                       {m.tF > 0 && <span>⬛ Fecho ({m.tF}d) · </span>}
-                      <span style={{ fontWeight: 700, color: restam <= 3 ? C.red : C.green }}>Restam {restam}d</span>
+                      {ultrapassou ? (
+                        <span style={{ fontWeight: 700, color: C.red }}>⚠️ Ultrapassou {marcados - totalDias}d! Contacta a gestão.</span>
+                      ) : (
+                        <span style={{ fontWeight: 700, color: restam <= 3 ? C.red : C.green }}>Restam {restam}d</span>
+                      )}
                       <span style={{ color: C.gray }}> · {(Number(terap["Dias Férias"]) || 22)} + {m.dBn} bónus</span>
                     </div>
                   </div>
