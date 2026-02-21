@@ -851,7 +851,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
                 </div>
               </div>
             )}
-            {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR + metrics.bR} dias de férias</strong> por marcar ({metrics.oR} obrigatórios{metrics.bR > 0 ? " + " + metrics.bR + " bónus" : ""})</div>}
+            {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR + metrics.bR} dias de férias</strong> por marcar</div>}
             {isFerias && fechoNoPedido > 0 && (
               <div style={{ background: C.grayBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.darkSoft, fontWeight: 600, marginBottom: 16, border: "1px solid " + C.grayLight }}>🔒 Este período inclui <strong>{fechoNoPedido} dia{fechoNoPedido > 1 ? "s" : ""} de fecho</strong> do CAIDI — já descontado{fechoNoPedido > 1 ? "s" : ""} automaticamente.</div>
             )}
@@ -1207,9 +1207,6 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                   <div style={{ fontSize: 14, color: C.tealDark, fontWeight: 800, lineHeight: 1.6, marginBottom: 10, background: "rgba(0,168,157,0.08)", padding: "8px 10px", borderRadius: 10, borderLeft: "3px solid " + C.teal }}>
                     {frase.cta}
                   </div>
-                  <div style={{ fontSize: 11, color: C.darkSoft, lineHeight: 1.5, padding: "6px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 10 }}>
-                    Sessões de terapia, avaliações, reuniões de escola e intervenção parental. Cada apoio dura 45 minutos.
-                  </div>
                 </Card>
               );
             })()}
@@ -1252,8 +1249,8 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
             </Card>
             )}
 
-            <div style={{ display: "grid", gridTemplateColumns: isADM ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
-              {[{ i: "🌴", v: m.oR + m.bR, l: "férias", c: (m.oR + m.bR) <= 3 ? C.red : C.teal }, { i: "🏥", v: m.dB, l: "baixa", c: m.dB > 0 ? C.purple : C.teal }, ...(!isADM ? [{ i: "🎓", v: m.dFO, l: "form.", c: C.orange }, { i: "🎁", v: m.dBn, l: "bónus", c: C.green }] : [{ i: "📋", v: m.dFJ + m.dFI, l: "faltas", c: m.dFI > 0 ? C.red : C.blue }])].map((x, idx) => (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
+              {[{ i: "🌴", v: (m.fU + m.bU) + "/" + ((Number(terap["Dias Férias"]) || 22) + m.dBn), l: "férias", c: C.teal }, { i: "🏥", v: m.dB, l: "baixa", c: m.dB > 0 ? C.purple : C.teal }, ...(!isADM ? [{ i: "🎓", v: m.dFO, l: "form.", c: C.orange }] : [{ i: "📋", v: m.dFJ + m.dFI, l: "faltas", c: m.dFI > 0 ? C.red : C.blue }])].map((x, idx) => (
                 <Card key={idx} delay={0.1 + idx * 0.03} style={{ padding: 10, textAlign: "center" }}>
                   <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>{x.i}</div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: x.c, lineHeight: 1.3 }}>{x.v}</div>
@@ -1653,7 +1650,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
               </div>
               <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: mq.diff >= 0 ? C.greenBg : C.yellowBg, textAlign: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: mq.diff >= 0 ? C.green : C.red }}>
-                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingido!" : "❌Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
+                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingido!" : "❌ Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
                 </span>
                 {!mq.passado && mq.proj > 0 && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>📈 Projeção: ~{mq.proj} apoios até ao fim</div>}
               </div>
@@ -1912,41 +1909,29 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
             <Card delay={0}>
               {(() => {
                 const totalDias = (Number(terap["Dias Férias"]) || 22) + m.dBn;
-                const usados = m.fU + m.bU;
-                const restam = Math.max(totalDias - usados, 0);
+                const marcados = m.fU + m.bU;
+                const restam = Math.max(totalDias - marcados, 0);
                 return (
                   <div>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>🌴 Férias</span>
-                      <span style={{ fontSize: 14, fontWeight: 800, color: C.teal }}>{usados}/{totalDias}</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>🌴 Dias de férias</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.teal }}>{marcados}/{totalDias}</span>
                     </div>
                     <div style={{ height: 10, background: C.grayLight, borderRadius: 6, overflow: "hidden", display: "flex" }}>
                       {m.tF > 0 && <div style={{ width: Math.min(totalDias > 0 ? (m.tF / totalDias) * 100 : 0, 100) + "%", background: C.gray, height: "100%" }} />}
-                      {(m.fU - m.tF) > 0 && <div style={{ width: Math.min(totalDias > 0 ? ((m.fU - m.tF) / totalDias) * 100 : 0, 100) + "%", background: C.teal, height: "100%" }} />}
-                      {m.bU > 0 && <div style={{ width: Math.min(totalDias > 0 ? (m.bU / totalDias) * 100 : 0, 100) + "%", background: C.green, height: "100%" }} />}
+                      {(marcados - m.tF) > 0 && <div style={{ width: Math.min(totalDias > 0 ? ((marcados - m.tF) / totalDias) * 100 : 0, 100) + "%", background: C.teal, height: "100%" }} />}
                     </div>
                     <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 4 }}>
                       {m.tF > 0 && <span>⬛ Fecho ({m.tF}d) · </span>}
-                      <span style={{ fontWeight: 700, color: C.green }}>Restam {restam}d</span>
-                      <span style={{ color: C.gray }}> · {Number(terap["Dias Férias"]) || 22} obrig.{m.dBn > 0 ? " + " + m.dBn + " bónus" : ""}</span>
+                      <span style={{ fontWeight: 700, color: restam <= 3 ? C.red : C.green }}>Restam {restam}d</span>
+                      <span style={{ color: C.gray }}> · {(Number(terap["Dias Férias"]) || 22)} + {m.dBn} bónus</span>
                     </div>
-                    {m.dBn > 0 && (
-                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                        <div style={{ flex: 1, background: C.tealLight, borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
-                          <div style={{ fontSize: 16, fontWeight: 900, color: C.teal }}>{m.oR}</div>
-                          <div style={{ fontSize: 9, color: C.darkSoft }}>obrig. restantes</div>
-                        </div>
-                        <div style={{ flex: 1, background: C.greenBg, borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
-                          <div style={{ fontSize: 16, fontWeight: 900, color: C.green }}>{m.bR}</div>
-                          <div style={{ fontSize: 9, color: C.darkSoft }}>bónus restantes</div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 );
               })()}
             </Card>
-            <div style={{ marginTop: 12 }}><Btn onClick={() => setShowForm("ferias")}>📝 Pedir Férias</Btn></div>
+            <div style={{ fontSize: 10, color: C.gray, textAlign: "center", marginTop: 6, fontStyle: "italic" }}>Os primeiros 22 dias são contabilizados como férias legais.</div>
+            <div style={{ marginTop: 10 }}><Btn onClick={() => setShowForm("ferias")}>📝 Pedir Férias</Btn></div>
             {m.feriadoMun && (
               <Card delay={0.08} style={{ marginTop: 10, background: "linear-gradient(135deg, " + C.blueBg + ", " + C.white + ")", border: "1px solid #b8d4e3" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2548,7 +2533,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
                     {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/semana"}>📋 <span style={{ fontWeight: 800, color: C.blue }}>{m2.diasTrab}d/sem</span></div>}
-                    <div>🌴 <span style={{ fontWeight: 800, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</span></div>
+                    <div>🌴 <span style={{ fontWeight: 800, color: (m2.oR + m2.bR) <= 3 ? C.red : C.teal }}>{m2.oR + m2.bR}d</span>{m2.bU > 0 && <span style={{ fontSize: 9, color: C.green, marginLeft: 3 }}>({m2.bU}b)</span>}</div>
                     {m2.dB > 0 && <div>🏥 <span style={{ fontWeight: 800, color: C.purple }}>{m2.dB}d</span></div>}
                     {m2.dFI > 0 && <div>⚠️ <span style={{ fontWeight: 800, color: C.red }}>{m2.dFI}</span></div>}
                     {!tIsADM && m2.ef >= m2.mBonus && m2.ef < m2.mMin && <div>🎁 <span style={{ fontWeight: 800, color: C.green }}>bónus</span></div>}
@@ -2579,7 +2564,12 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                   <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>{fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {fmtDias(p["Dias Úteis"], p["Período"])}</div>
                   {m2t && m2t.diasTrab < 5 && p.Motivo.includes("Férias") && (
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.blueBg, color: C.blue, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, marginTop: 4 }}>
-                      📋 {m2t.diasTrab}d/semana · Restam {m2t.oR}d obrigatórios
+                      📋 {m2t.diasTrab}d/semana · Restam {m2t.oR + m2t.bR}d férias
+                    </div>
+                  )}
+                  {m2t && p.Motivo.includes("Férias") && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.greenBg, color: C.green, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, marginTop: 4, marginLeft: 4 }}>
+                      🎁 Bónus: {m2t.bU}/{m2t.dBn} usados
                     </div>
                   )}
                   {p.Observações && <div style={{ fontSize: 12, color: C.darkSoft, fontStyle: "italic", marginTop: 3 }}>"{p.Observações}"</div>}
@@ -2739,14 +2729,14 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, textAlign: "center" }}>
                         <div style={{ padding: 8, background: C.white, borderRadius: 10 }}>
-                          <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>🌴 Obrig.</div>
-                          <div style={{ fontSize: 18, fontWeight: 900, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</div>
+                          <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>🌴 Férias</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: (m2.oR + m2.bR) <= 3 ? C.red : C.teal }}>{m2.oR + m2.bR}</div>
                           <div style={{ fontSize: 9, color: C.gray }}>restam</div>
                         </div>
                         <div style={{ padding: 8, background: C.white, borderRadius: 10 }}>
                           <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>🎁 Bónus</div>
-                          <div style={{ fontSize: 18, fontWeight: 900, color: C.green }}>{m2.bR}</div>
-                          <div style={{ fontSize: 9, color: C.gray }}>restam</div>
+                          <div style={{ fontSize: 18, fontWeight: 900, color: C.green }}>{m2.bU}/{m2.dBn}</div>
+                          <div style={{ fontSize: 9, color: C.gray }}>usados</div>
                         </div>
                         <div style={{ padding: 8, background: C.white, borderRadius: 10 }}>
                           <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>🏥 Baixa</div>
@@ -2761,7 +2751,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       </div>
                       {m2.diasTrab < 5 && (
                         <div style={{ marginTop: 8, padding: "6px 10px", background: C.white, borderRadius: 8, fontSize: 11, color: C.darkSoft }}>
-                          📋 Trabalha {m2.diasTrab} dias/semana · Férias: <strong>{m2.fU}/{Number(t2 && t2["Dias Férias"] || 22)}</strong> obrig. usados · <strong style={{ color: m2.oR <= 3 ? C.red : C.green }}>{m2.oR} restantes</strong>
+                          📋 Trabalha {m2.diasTrab} dias/semana
                         </div>
                       )}
                       {!tIsADM && (
