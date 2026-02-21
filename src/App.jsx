@@ -45,7 +45,12 @@ function fileToBase64(file) {
 }
 
 /* ═══════════════════════ FERIADOS NACIONAIS ═══════════════════════ */
-const FERIADOS_2026 = new Set([
+const FERIADOS_NACIONAIS = new Set([
+  // 2025
+  "2025-01-01", "2025-04-18", "2025-04-20", "2025-04-25", "2025-05-01",
+  "2025-06-10", "2025-06-19", "2025-08-15", "2025-10-05", "2025-11-01",
+  "2025-12-01", "2025-12-08", "2025-12-25",
+  // 2026
   "2026-01-01", // Ano Novo (Qui)
   "2026-04-03", // Sexta-feira Santa (Sex)
   "2026-04-05", // Páscoa (Dom)
@@ -59,15 +64,29 @@ const FERIADOS_2026 = new Set([
   "2026-12-01", // Restauração da Independência (Ter)
   "2026-12-08", // Imaculada Conceição (Ter)
   "2026-12-25", // Natal (Sex)
+  // 2027
+  "2027-01-01", // Ano Novo (Sex)
+  "2027-03-26", // Sexta-feira Santa
+  "2027-03-28", // Páscoa (Dom)
+  "2027-04-25", // Dia da Liberdade (Dom)
+  "2027-05-01", // Dia do Trabalhador (Sáb)
+  "2027-05-27", // Corpo de Deus (Qui)
+  "2027-06-10", // Dia de Portugal (Qui)
+  "2027-08-15", // Assunção (Dom)
+  "2027-10-05", // Implantação da República (Ter)
+  "2027-11-01", // Todos os Santos (Seg)
+  "2027-12-01", // Restauração (Qua)
+  "2027-12-08", // Imaculada (Qua)
+  "2027-12-25", // Natal (Sáb)
 ]);
 
 function isFeriado(dateStr) {
-  return FERIADOS_2026.has(dateStr);
+  return FERIADOS_NACIONAIS.has(dateStr);
 }
 
 // Feriado incluindo municipal (por terapeuta)
 function isFeriadoTerap(dateStr, feriadoMun) {
-  return FERIADOS_2026.has(dateStr) || (feriadoMun && dateStr === feriadoMun);
+  return FERIADOS_NACIONAIS.has(dateStr) || (feriadoMun && dateStr === feriadoMun);
 }
 
 // Normalizar data de feriado municipal (pode vir como Date ISO ou string)
@@ -310,7 +329,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
     if (!fp["Data Início"] || !fp["Data Fim"]) return;
     const isExplicitBonus = fp.Motivo === "Férias (Bónus)";
     
-    // Recolher dias deste pedido
+    // Recolher dias deste pedido (excl fecho/feriados/fds)
     const pedDias = [];
     const d2 = new Date(fp["Data Início"] + "T12:00:00"), fim2 = new Date(fp["Data Fim"] + "T12:00:00");
     while (d2 <= fim2) {
@@ -320,6 +339,9 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
       }
       d2.setDate(d2.getDate() + 1);
     }
+    
+    // Se o pedido não tem dias reais (tudo fecho/feriado) → ignorar
+    if (pedDias.length === 0) return;
     
     // Determinar se é bónus: explícito OU retroativo (não cobre semana completa)
     let isBonus = isExplicitBonus;
@@ -1542,7 +1564,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                         const isFecho = diasFecho.has(ds);
                         const isPendente = diasPendentes.has(ds);
                         const isHoje = ds === hojeStr;
-                        const isFeriadoNac = FERIADOS_2026.has(ds);
+                        const isFeriadoNac = FERIADOS_NACIONAIS.has(ds);
                         const isFeriadoMun = m.feriadoMun && ds === m.feriadoMun;
                         if (isFerias || isFecho || isPendente || isFeriadoNac || isFeriadoMun) temAlgo = true;
                         cells.push({ d, ds, isWe, isFerias, isFecho, isPendente, isHoje, isFeriadoNac, isFeriadoMun });
@@ -1687,7 +1709,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
               </div>
               <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: mq.diff >= 0 ? C.greenBg : C.yellowBg, textAlign: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: mq.diff >= 0 ? C.green : C.red }}>
-                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingido!" : "❌ Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
+                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingida!" : "❌ Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
                 </span>
                 {!mq.passado && mq.proj > 0 && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>📈 Projeção: ~{mq.proj} apoios até ao fim</div>}
               </div>
