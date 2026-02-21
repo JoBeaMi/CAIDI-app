@@ -277,12 +277,10 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const euros10 = ef > mE3 ? ef - mE3 : 0;
   const eurosTotal = (euros5 * 5) + (euros10 * 10);
 
-  // ── Férias com horário proporcional ──
+  // ── Férias: 22 dias úteis para todas (lei) ──
   const diasTrab = hor ? hor.diasTrab : 5;
-  const diasFeriasCAIDI = hor ? hor.diasFeriasCAIDI : 22;
-  const fechoCAIDI = contarDiasTrabFecho(fecho, hor);
-  // Recalcular dias de fecho (não confiar no Sheets)
   const fechoSet = buildFechoSet(fecho);
+  // Fecho CAIDI: conta em dias úteis do calendário para todas (igual)
   const tF = (() => {
     let count = 0;
     fecho.forEach(f => {
@@ -299,9 +297,8 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   })();
 
   const feriasPedidas = aus.filter(a => a.Motivo.includes("Férias") && (a.Estado === "Aprovado" || a.Estado === "Pendente"));
-  const feriasCAIDI = contarDiasTrabAus(feriasPedidas, hor);
   
-  // Contar dias reais de férias (merge de intervalos para evitar duplicação com split)
+  // Contar dias reais de férias em dias úteis (merge intervalos, excluir fecho/feriados)
   const fmtYMDcalc = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
   const diasFeriasSet = new Set();
   feriasPedidas.forEach(fp => {
@@ -317,20 +314,18 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   });
   const totalFeriasReais = diasFeriasSet.size;
   
-  // Distribuir: primeiro preenche obrigatórias, resto vai para bónus
-  const maxObrigRestantes = Math.max(Number(t["Dias Férias"]) - tF, 0);
+  // Distribuir: primeiro preenche obrigatórias (22), resto vai para bónus
+  const diasFeriasLegais = Number(t["Dias Férias"]) || 22;
+  const maxObrigRestantes = Math.max(diasFeriasLegais - tF, 0);
   const fUPedidas = Math.min(totalFeriasReais, maxObrigRestantes);
   const fU = fUPedidas + tF;
   const bU = Math.max(totalFeriasReais - fUPedidas, 0);
-  const oR = Math.max(Number(t["Dias Férias"]) - fU, 0);
+  const oR = Math.max(diasFeriasLegais - fU, 0);
+  // Bónus: proporcionais ao horário (quem trabalha 3d/sem, cada bónus = 1 dia de trabalho)
   const dBn = Number(t["Dias Bónus Ganhos"] || 0);
   const hSemanaisContrato = Number(t["Horas Semanais"]) || 40;
   const maxBonusPossivel = 15;
   const bR = Math.max(dBn - bU, 0);
-  const diasBonusCAIDI = dBn;
-  const limiteCAIDI = diasFeriasCAIDI + diasBonusCAIDI;
-  const usadosCAIDI = fechoCAIDI + feriasCAIDI;
-  const restamCAIDI = Math.max(limiteCAIDI - usadosCAIDI, 0);
 
   const dExtraTotal = Math.max(dQuadTotal - dLetivoTotal, 0);
   const passado = new Date().toISOString().slice(0,10) > q.qFim;
@@ -365,11 +360,11 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const pctAssiduidade = diasUteisPeriodo > 0 ? Math.round(((diasUteisPeriodo - faltasEfetivas) / diasUteisPeriodo) * 1000) / 10 : 100;
   const assiduidadeOk = pctAssiduidade >= 95;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, diasFeriasCAIDI, diasBonusCAIDI, fechoCAIDI, feriasCAIDI, usadosCAIDI, limiteCAIDI, restamCAIDI, passado, feriadoMun, pctAssiduidade, assiduidadeOk, diasFaltaTotal, diasCompensados, faltasEfetivas };
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, passado, feriadoMun, pctAssiduidade, assiduidadeOk, diasFaltaTotal, diasCompensados, faltasEfetivas };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, diasFeriasCAIDI: 22, diasBonusCAIDI: 0, fechoCAIDI: 0, feriasCAIDI: 0, usadosCAIDI: 0, limiteCAIDI: 22, restamCAIDI: 22, passado: false, feriadoMun: null, pctAssiduidade: 100, assiduidadeOk: true, diasFaltaTotal: 0, diasCompensados: 0, faltasEfetivas: 0 };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, passado: false, feriadoMun: null, pctAssiduidade: 100, assiduidadeOk: true, diasFaltaTotal: 0, diasCompensados: 0, faltasEfetivas: 0 };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -618,17 +613,10 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
   const handleFile = (e) => { const f = e.target.files[0]; if (!f) return; if (f.size > 10*1024*1024) { alert("Máx 10MB"); return; } setNomeF(f.name); setFicheiro(f); };
   const removeFile = () => { setFicheiro(null); setNomeF(""); if (fileRef.current) fileRef.current.value = ""; };
 
-  // Calcular quantos dias de trabalho CAIDI este pedido usa
-  const diasTrabPedido = (() => {
-    if (!fD.inicio || !fD.fim || !metrics.hor) return 0;
-    if (mesmoDia && periodo !== "dia") {
-      const d = new Date(fD.inicio);
-      return trabalhaDia(metrics.hor, d.getDay()) ? 0.5 : 0;
-    }
-    let count = 0;
-    const d = new Date(fD.inicio), fim = new Date(fD.fim);
-    while (d <= fim) { if (d.getDay() >= 1 && d.getDay() <= 5 && trabalhaDia(metrics.hor, d.getDay())) count++; d.setDate(d.getDate() + 1); }
-    return count;
+  // Calcular dias úteis do pedido
+  const diasUteisPedido = (() => {
+    if (!fD.inicio || !fD.fim) return 0;
+    return contarDiasUteis(fD.inicio, fD.fim);
   })();
 
   // Calcular dias de fecho que caem no pedido (para info visual)
@@ -637,15 +625,121 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     const fs = buildFechoSet(fecho);
     return contarDiasUteis(fD.inicio, fD.fim) - contarDiasFerias(fD.inicio, fD.fim, fs, metrics.feriadoMun);
   })();
-  const ultrapassaCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI < diasTrabPedido;
-  const esgotouCAIDI = isFerias && metrics.diasTrab < 5 && metrics.restamCAIDI <= 0;
+
+  // ── Smart férias type detection ──
+  // Verifica se o pedido cobre todos os dias de trabalho em cada semana
+  // Se sim → obrigatórias (conta 5 dias úteis por semana). Se não → bónus ou isolado.
+  const feriasAnalise = (() => {
+    if (!isFerias || !fD.inicio || !fD.fim) return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: 0 };
+    
+    const fechoS = buildFechoSet(fecho);
+    const hor = metrics.hor; // horário da terapeuta (null = full-time 5d)
+    
+    // Recolher dias úteis do pedido (excluindo fecho e feriados)
+    const pedidoDias = [];
+    const d = new Date(fD.inicio + "T12:00:00"), fim = new Date(fD.fim + "T12:00:00");
+    while (d <= fim) {
+      if (d.getDay() >= 1 && d.getDay() <= 5) {
+        const ds = d.toISOString().slice(0,10);
+        if (!fechoS.has(ds) && !isFeriadoTerap(ds, metrics.feriadoMun)) {
+          pedidoDias.push({ date: ds, dow: d.getDay() });
+        }
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    if (pedidoDias.length === 0) return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: 0 };
+    
+    // Agrupar por semana (segunda-feira)
+    const semanas = {};
+    pedidoDias.forEach(pd => {
+      const dt = new Date(pd.date + "T12:00:00");
+      const mon = new Date(dt);
+      mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1));
+      const key = mon.toISOString().slice(0,10);
+      if (!semanas[key]) semanas[key] = [];
+      semanas[key].push(pd);
+    });
+    
+    // Para cada semana: verificar se o pedido cobre TODOS os dias de trabalho
+    let todasSemanasCobertas = true;
+    const semsIncompletas = [];
+    const dayNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+    
+    Object.entries(semanas).forEach(([monKey, diasPedido]) => {
+      // Quais dias de trabalho existem nesta semana? (excl. fecho/feriados)
+      const diasTrabalhoSemana = [];
+      for (let i = 0; i < 5; i++) {
+        const wd = new Date(monKey + "T12:00:00");
+        wd.setDate(wd.getDate() + i);
+        const wds = wd.toISOString().slice(0,10);
+        const dow = wd.getDay();
+        if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun) && trabalhaDia(hor, dow)) {
+          diasTrabalhoSemana.push({ date: wds, dow });
+        }
+      }
+      
+      // Verificar se o pedido cobre todos os dias de trabalho desta semana
+      const diasPedidoSet = new Set(diasPedido.map(dd => dd.date));
+      const diasNaoCobertos = diasTrabalhoSemana.filter(dt => !diasPedidoSet.has(dt.date));
+      
+      if (diasNaoCobertos.length > 0) {
+        // Nem todos os dias de trabalho cobertos → semana incompleta
+        todasSemanasCobertas = false;
+        semsIncompletas.push({ weekOf: monKey, gaps: diasNaoCobertos.map(d2 => dayNames[d2.dow]) });
+      }
+    });
+    
+    if (todasSemanasCobertas) {
+      // Cobre todos os dias de trabalho → verificar se selecionou 2ª a 6ª
+      const semKeys = Object.keys(semanas);
+      let datasCorretas = true;
+      const semsParaCorrigir = [];
+      const dayNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+      
+      semKeys.forEach(monKey => {
+        // Verificar se todos os 5 dias úteis da semana estão no pedido (excl. fecho/feriados)
+        for (let i = 0; i < 5; i++) {
+          const wd = new Date(monKey + "T12:00:00");
+          wd.setDate(wd.getDate() + i);
+          const wds = wd.toISOString().slice(0,10);
+          const dow = wd.getDay();
+          if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun)) {
+            // Este dia útil devia estar no pedido
+            if (!pedidoDias.find(dd => dd.date === wds)) {
+              datasCorretas = false;
+              if (!semsParaCorrigir.find(s => s.weekOf === monKey)) {
+                // Calcular 2ª e 6ª desta semana
+                const mon = new Date(monKey + "T12:00:00");
+                const fri = new Date(mon); fri.setDate(fri.getDate() + 4);
+                semsParaCorrigir.push({ weekOf: monKey, de: mon.toISOString().slice(0,10), ate: fri.toISOString().slice(0,10) });
+              }
+            }
+          }
+        }
+      });
+      
+      if (datasCorretas) {
+        // Selecionou 2ª-6ª corretamente → obrigatórias, tudo ok
+        return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, devExpandir: false };
+      } else {
+        // Cobriu dias de trabalho mas não selecionou semana completa → pedir para corrigir
+        return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, devExpandir: true, semsParaCorrigir };
+      }
+    } else {
+      if (metrics.bR > 0) {
+        // Tem bónus → usar bónus (sem aviso)
+        return { tipo: "bonus", isolado: false, semIncompleta: null, diasReais: pedidoDias.length };
+      } else {
+        // Sem bónus → obrigatórias com flag de isolado
+        return { tipo: "obrigatorias", isolado: true, semIncompleta: semsIncompletas, diasReais: pedidoDias.length };
+      }
+    }
+  })();
 
   const submit = async () => {
     if (!fD.inicio || !fD.fim) return;
     if (isFerias && emLetivo && !justLetivo.trim()) { setErrMsg("Pedido em período letivo — indica o motivo da exceção."); return; }
-    // Nota: bónus em letivo não é bloqueado — fica sujeito a aprovação da gestão
-    if (esgotouCAIDI) { setErrMsg("Já usaste todos os dias de trabalho disponíveis no CAIDI. Contacta a gestão."); return; }
-    if (ultrapassaCAIDI) { setErrMsg("Este pedido usa " + diasTrabPedido + " dias de trabalho mas só tens " + metrics.restamCAIDI + " disponíveis. Ajusta as datas."); return; }
+    if (isFerias && feriasAnalise.devExpandir) { setErrMsg("Seleciona de 2ª a 6ª para cobrir a semana completa."); return; }
     setSub(true); setErrMsg("");
     const fechoSetLocal = buildFechoSet(fecho);
     let dias = isFerias ? contarDiasFerias(fD.inicio, fD.fim, fechoSetLocal, metrics.feriadoMun) : contarDiasUteis(fD.inicio, fD.fim);
@@ -657,27 +751,15 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     if (ficheiro) { try { ficheiroData = await fileToBase64(ficheiro); } catch {} }
 
     try {
-      if (isFerias && metrics.oR > 0 && dias > metrics.oR) {
-        // Auto-split: mesmas datas, dois pedidos com motivos e dias diferentes
-        const diasObrig = metrics.oR;
-        const diasBonus = dias - diasObrig;
-        
-        // Pedido 1: Obrigatórias (dias que cabem nos 22)
-        await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: "Férias (Obrigatórias)", nota: notaFinal + " [auto: " + diasObrig + "d obrig. de " + dias + "d]", periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
-        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: "Férias (Obrigatórias)", "Dias Úteis": diasObrig, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: "" });
-        
-        // Pedido 2: Bónus (dias que sobram)
-        await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: "Férias (Bónus)", nota: notaFinal + " [auto: " + diasBonus + "d bónus de " + dias + "d]", periodo: mesmoDia ? periodo : "dia", ficheiro: null });
-        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: "Férias (Bónus)", "Dias Úteis": diasBonus, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: "" });
-        
-      } else {
-        // Pedido normal (tudo obrigatórias ou tudo bónus)
-        let mot = motivo;
-        if (isFerias) mot = metrics.oR > 0 ? "Férias (Obrigatórias)" : "Férias (Bónus)";
-        const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal, periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
-        const linkReal = (resp && resp.ficheiro && resp.ficheiro.indexOf("http") === 0) ? resp.ficheiro : "";
-        onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
+      // Férias: tipo decidido automaticamente (semanas completas = obrigatórias, soltos = bónus)
+      let mot = motivo;
+      if (isFerias) {
+        mot = feriasAnalise.tipo === "bonus" ? "Férias (Bónus)" : "Férias (Obrigatórias)";
       }
+      const notaIsolado = isFerias && feriasAnalise.isolado ? " [⚠️ DIAS ISOLADOS SEM BÓNUS]" : "";
+      const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal + notaIsolado, periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
+      const linkReal = (resp && resp.ficheiro && resp.ficheiro.indexOf("http") === 0) ? resp.ficheiro : "";
+      onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
       setDone(true); setTimeout(onClose, 1800);
     } catch (err) { setErrMsg("Erro: " + err.message); }
     setSub(false);
@@ -769,30 +851,40 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
                 </div>
               </div>
             )}
-            {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR} dias obrigatórios</strong> por marcar</div>}
+            {isFerias && <div style={{ background: C.tealLight, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.tealDark, fontWeight: 600, marginBottom: 16 }}>💡 Tens <strong>{metrics.oR + metrics.bR} dias de férias</strong> por marcar ({metrics.oR} obrigatórios{metrics.bR > 0 ? " + " + metrics.bR + " bónus" : ""})</div>}
             {isFerias && fechoNoPedido > 0 && (
               <div style={{ background: C.grayBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.darkSoft, fontWeight: 600, marginBottom: 16, border: "1px solid " + C.grayLight }}>🔒 Este período inclui <strong>{fechoNoPedido} dia{fechoNoPedido > 1 ? "s" : ""} de fecho</strong> do CAIDI — já descontado{fechoNoPedido > 1 ? "s" : ""} automaticamente.</div>
             )}
-            {isFerias && metrics.diasTrab < 5 && fD.inicio && fD.fim && diasTrabPedido > 0 && (
-              <div style={{ background: C.blueBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.blue, fontWeight: 600, marginBottom: 16 }}>📊 Este pedido usa <strong>{diasTrabPedido} dia{diasTrabPedido !== 1 ? "s" : ""} de trabalho</strong> no CAIDI. Tens <strong>{metrics.restamCAIDI}</strong> disponíve{metrics.restamCAIDI !== 1 ? "is" : "l"}.</div>
-            )}
-            {esgotouCAIDI && (
-              <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, marginBottom: 14, border: "1px solid #f5c6c0" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: C.red }}>🔴 Dias de trabalho esgotados</div>
-                <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>As tuas {Number(terap["Horas Semanais"])}h semanais estão concentradas em {metrics.diasTrab} dias, por isso tens {metrics.diasFeriasCAIDI} dias de férias{metrics.diasBonusCAIDI > 0 ? " + " + metrics.diasBonusCAIDI + " bónus" : ""} no CAIDI. Já os usaste todos. Se precisares de faltar, contacta a gestão.</div>
+            {isFerias && feriasAnalise.devExpandir && (
+              <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
+                <div style={{ color: C.red }}>📅 Seleciona a semana completa</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
+                  Estás a cobrir todos os teus dias de trabalho nesta semana. Como descansas uma semana inteira, seleciona de <strong>2ª a 6ª</strong>.
+                </div>
+                {feriasAnalise.semsParaCorrigir && feriasAnalise.semsParaCorrigir.map((s, i) => (
+                  <div key={i} style={{ fontSize: 11, color: C.red, marginTop: 4, fontWeight: 700 }}>
+                    → Seleciona {fmtDF(s.de)} a {fmtDF(s.ate)}
+                  </div>
+                ))}
               </div>
             )}
-            {ultrapassaCAIDI && !esgotouCAIDI && (
-              <div style={{ background: C.redBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.red, fontWeight: 600, marginBottom: 16 }}>⚠️ Este pedido usa <strong>{diasTrabPedido} dias de trabalho</strong> mas só tens <strong>{metrics.restamCAIDI}</strong>. Ajusta as datas.</div>
-            )}
-            {isFerias && metrics.diasTrab < 5 && !esgotouCAIDI && !ultrapassaCAIDI && metrics.restamCAIDI > 0 && metrics.restamCAIDI <= 3 && (
-              <div style={{ background: C.yellowBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: "#E17055", fontWeight: 600, marginBottom: 16 }}>⚠️ Restam-te <strong>{metrics.restamCAIDI} dias de trabalho</strong> disponíveis no CAIDI (de {metrics.limiteCAIDI})</div>
+            {feriasAnalise.isolado && (
+              <div style={{ background: C.yellowBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #FDEBD0" }}>
+                <div style={{ color: "#E17055" }}>⚠️ Dias isolados</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
+                  Os teus dias de férias isolados já foram usados. As férias restantes devem ser marcadas em dias consecutivos (semanas completas, 2ª a 6ª).
+                </div>
+                {feriasAnalise.semIncompleta && feriasAnalise.semIncompleta.map((w, i) => (
+                  <div key={i} style={{ fontSize: 11, color: C.darkSoft, marginTop: 3 }}>Semana de {fmtDF(w.weekOf)}: faltam {w.gaps.join(", ")}</div>
+                ))}
+                <div style={{ fontSize: 11, color: C.darkSoft, marginTop: 4, fontStyle: "italic" }}>Podes submeter, mas a gestão poderá rejeitar.</div>
+              </div>
             )}
             {type === "baixa" && <div style={{ background: C.purpleBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.purple, fontWeight: 600, marginBottom: 16 }}>🏥 A baixa <strong>não desconta</strong> férias. O objetivo ajusta-se.</div>}
             {type === "formacao" && <div style={{ background: C.orangeBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.orange, fontWeight: 600, marginBottom: 16 }}>🎓 Formações <strong>não descontam</strong> férias nem o objetivo.</div>}
             {type === "falta" && motivo === "Falta Injustificada" && <div style={{ background: C.redBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.red, fontWeight: 600, marginBottom: 16 }}>⚠️ Faltas injustificadas podem ter <strong>impacto na avaliação</strong>.</div>}
             {errMsg && <div style={{ background: C.redBg, color: C.red, padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>⚠️ {errMsg}</div>}
-            <Btn onClick={submit} disabled={sub || esgotouCAIDI || ultrapassaCAIDI} variant={btnV[type]}>{sub ? "A enviar..." : esgotouCAIDI ? "Sem dias disponíveis" : ultrapassaCAIDI ? "Dias insuficientes" : "Enviar pedido"}</Btn>
+            <Btn onClick={submit} disabled={sub || (isFerias && feriasAnalise.devExpandir)} variant={btnV[type]}>{sub ? "A enviar..." : (isFerias && feriasAnalise.devExpandir) ? "Ajusta as datas (2ª a 6ª)" : "Enviar pedido"}</Btn>
           </>
         )}
       </div>
@@ -975,6 +1067,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
   const ap = data.resumoApoios && data.resumoApoios[String(terap.ID)] ? data.resumoApoios[String(terap.ID)].ef : 0;
   const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
+  m._allAus = aus; // Pass all absences for week-gap detection in form
   const saudePedidos = aus.filter(a => !a.Motivo.includes("Férias")).sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const pend = aus.filter(p => p.Estado === "Pendente").length;
@@ -1114,6 +1207,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                   <div style={{ fontSize: 14, color: C.tealDark, fontWeight: 800, lineHeight: 1.6, marginBottom: 10, background: "rgba(0,168,157,0.08)", padding: "8px 10px", borderRadius: 10, borderLeft: "3px solid " + C.teal }}>
                     {frase.cta}
                   </div>
+                  <div style={{ fontSize: 11, color: C.darkSoft, lineHeight: 1.5, padding: "6px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 10 }}>
+                    Sessões de terapia, avaliações, reuniões de escola e intervenção parental. Cada apoio dura 45 minutos.
+                  </div>
                 </Card>
               );
             })()}
@@ -1157,7 +1253,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
             )}
 
             <div style={{ display: "grid", gridTemplateColumns: isADM ? "1fr 1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 6, marginTop: 8 }}>
-              {[{ i: "🌴", v: m.oR, l: "férias", c: m.oR <= 3 ? C.red : C.teal }, { i: "🏥", v: m.dB, l: "baixa", c: m.dB > 0 ? C.purple : C.teal }, ...(!isADM ? [{ i: "🎓", v: m.dFO, l: "form.", c: C.orange }, { i: "🎁", v: m.dBn + "/" + m.maxBonusPossivel, l: "bónus", c: C.green }] : [{ i: "📋", v: m.dFJ + m.dFI, l: "faltas", c: m.dFI > 0 ? C.red : C.blue }])].map((x, idx) => (
+              {[{ i: "🌴", v: m.oR + m.bR, l: "férias", c: (m.oR + m.bR) <= 3 ? C.red : C.teal }, { i: "🏥", v: m.dB, l: "baixa", c: m.dB > 0 ? C.purple : C.teal }, ...(!isADM ? [{ i: "🎓", v: m.dFO, l: "form.", c: C.orange }, { i: "🎁", v: m.dBn, l: "bónus", c: C.green }] : [{ i: "📋", v: m.dFJ + m.dFI, l: "faltas", c: m.dFI > 0 ? C.red : C.blue }])].map((x, idx) => (
                 <Card key={idx} delay={0.1 + idx * 0.03} style={{ padding: 10, textAlign: "center" }}>
                   <div style={{ fontSize: 8, color: C.gray, fontWeight: 700, textTransform: "uppercase" }}>{x.i}</div>
                   <div style={{ fontSize: 22, fontWeight: 900, color: x.c, lineHeight: 1.3 }}>{x.v}</div>
@@ -1814,45 +1910,42 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>As tuas férias</h2>
             <Card delay={0}>
-              {[{ l: "🌴 Obrigatórias", u: m.diasTrab < 5 ? Math.round(m.fU * m.diasTrab / 5) : m.fU, t: m.diasTrab < 5 ? m.diasFeriasCAIDI : Number(terap["Dias Férias"]), r: m.diasTrab < 5 ? Math.max(m.diasFeriasCAIDI - Math.round(m.fU * m.diasTrab / 5), 0) : m.oR, c: C.teal, f: m.diasTrab < 5 ? Math.round(m.tF * m.diasTrab / 5) : m.tF }, { l: "🎁 Bónus", u: m.bU, t: m.dBn, r: m.bR, c: C.green, max: m.maxBonusPossivel }].map((f, i) => (
-                <div key={i} style={{ marginBottom: i === 0 ? 16 : 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>{f.l}</span><span style={{ fontSize: 14, fontWeight: 800, color: f.c }}>{Math.min(f.u, f.t)}/{f.t}</span></div>
-                  <div style={{ height: 10, background: C.grayLight, borderRadius: 6, overflow: "hidden", display: "flex" }}>{f.f > 0 && <div style={{ width: Math.min(f.t > 0 ? (f.f / f.t) * 100 : 0, 100) + "%", background: C.gray, height: "100%" }} />}<div style={{ width: Math.min(f.t > 0 ? ((Math.min(f.u, f.t) - (f.f||0)) / f.t) * 100 : 0, 100) + "%", background: f.c, height: "100%" }} /></div>
-                  <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 4 }}>{f.f ? "⬛ Fecho (" + f.f + "d) · " : ""}<span style={{ fontWeight: 700, color: C.green }}>Restam {f.r}d</span>{i === 1 && m.oR > 0 && <span style={{ color: C.red }}> · ⚠️ só após os 22</span>}{i === 1 && f.max && <span style={{ color: C.gray }}> · máx. {f.max}d</span>}</div>
-                  {i === 0 && m.diasTrab < 5 && (
-                    <div style={{ fontSize: 10, color: C.blue, fontWeight: 600, marginTop: 4, background: C.blueBg, padding: "4px 8px", borderRadius: 6 }}>
-                      ℹ️ Trabalhas {m.diasTrab} dias/semana — os teus 22 dias correspondem a <strong>{m.diasFeriasCAIDI} dias de trabalho</strong> no CAIDI
+              {(() => {
+                const totalDias = (Number(terap["Dias Férias"]) || 22) + m.dBn;
+                const usados = m.fU + m.bU;
+                const restam = Math.max(totalDias - usados, 0);
+                return (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>🌴 Férias</span>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: C.teal }}>{usados}/{totalDias}</span>
                     </div>
-                  )}
-                </div>
-              ))}
+                    <div style={{ height: 10, background: C.grayLight, borderRadius: 6, overflow: "hidden", display: "flex" }}>
+                      {m.tF > 0 && <div style={{ width: Math.min(totalDias > 0 ? (m.tF / totalDias) * 100 : 0, 100) + "%", background: C.gray, height: "100%" }} />}
+                      {(m.fU - m.tF) > 0 && <div style={{ width: Math.min(totalDias > 0 ? ((m.fU - m.tF) / totalDias) * 100 : 0, 100) + "%", background: C.teal, height: "100%" }} />}
+                      {m.bU > 0 && <div style={{ width: Math.min(totalDias > 0 ? (m.bU / totalDias) * 100 : 0, 100) + "%", background: C.green, height: "100%" }} />}
+                    </div>
+                    <div style={{ fontSize: 10, color: C.darkSoft, marginTop: 4 }}>
+                      {m.tF > 0 && <span>⬛ Fecho ({m.tF}d) · </span>}
+                      <span style={{ fontWeight: 700, color: C.green }}>Restam {restam}d</span>
+                      <span style={{ color: C.gray }}> · {Number(terap["Dias Férias"]) || 22} obrig.{m.dBn > 0 ? " + " + m.dBn + " bónus" : ""}</span>
+                    </div>
+                    {m.dBn > 0 && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <div style={{ flex: 1, background: C.tealLight, borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 900, color: C.teal }}>{m.oR}</div>
+                          <div style={{ fontSize: 9, color: C.darkSoft }}>obrig. restantes</div>
+                        </div>
+                        <div style={{ flex: 1, background: C.greenBg, borderRadius: 8, padding: "6px 10px", textAlign: "center" }}>
+                          <div style={{ fontSize: 16, fontWeight: 900, color: C.green }}>{m.bR}</div>
+                          <div style={{ fontSize: 9, color: C.darkSoft }}>bónus restantes</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </Card>
-            {m.diasTrab < 5 && (() => {
-              const hPorDia = Math.round(Number(terap["Horas Semanais"]) / 5 * 10) / 10;
-              const diasLivres = 5 - m.diasTrab;
-              return (
-              <Card delay={0.05} style={{ marginTop: 8, background: "linear-gradient(135deg, " + C.blueBg + ", " + C.white + ")", border: "1px solid #b8d4e3" }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: C.blue, marginBottom: 6 }}>📋 Férias e horário</div>
-                <div style={{ fontSize: 14, color: C.darkSoft, lineHeight: 1.7 }}>
-                  O teu contrato é de <strong>{Number(terap["Horas Semanais"])}h semanais</strong>. Normalmente, estas horas seriam distribuídas pelos 5 dias úteis ({hPorDia}h por dia) e trabalhavas todos os dias. O CAIDI permite-te concentrar essas horas em apenas <strong>{m.diasTrab} dias</strong> — ou seja, já tens <strong>{diasLivres} dia{diasLivres > 1 ? "s" : ""} livre{diasLivres > 1 ? "s" : ""} por semana</strong> sem precisar de usar férias.
-                </div>
-                <div style={{ fontSize: 14, color: C.darkSoft, lineHeight: 1.7, marginTop: 8 }}>
-                  Se as tuas horas estivessem distribuídas por 5 dias, os 22 dias de férias cobriam todos os dias da semana. Mas como trabalhas {m.diasTrab} dias, marcar férias num dia em que não estás no CAIDI não faz sentido — já é um dia livre.
-                </div>
-                <div style={{ fontSize: 14, color: C.darkSoft, lineHeight: 1.7, marginTop: 8 }}>
-                  Por isso, dos 22 dias, <strong>{m.diasFeriasCAIDI} correspondem a dias em que efetivamente trabalhas</strong> no CAIDI.{m.diasBonusCAIDI > 0 ? <span> Com os <strong>{m.diasBonusCAIDI} dias bónus</strong> ganhos, tens <strong>{m.limiteCAIDI} dias</strong> no total.</span> : " São esses os dias que podes usar."}
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, padding: "10px 4px", borderTop: "1px solid #d4e6f1" }}>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.gray }}>{m.fechoCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Fecho</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.blue }}>{m.feriasCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Marcados</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: m.restamCAIDI <= 2 ? C.red : C.green }}>{m.restamCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Disponíveis</div></div>
-                  <div style={{ textAlign: "center" }}><div style={{ fontSize: 18, fontWeight: 900, color: C.tealDark }}>{m.limiteCAIDI}</div><div style={{ fontSize: 9, color: C.gray }}>Total{m.diasBonusCAIDI > 0 ? " (+" + m.diasBonusCAIDI + " bónus)" : ""}</div></div>
-                </div>
-                {m.restamCAIDI <= 2 && m.restamCAIDI > 0 && <div style={{ fontSize: 11, color: C.red, fontWeight: 700, marginTop: 6 }}>⚠️ Tens poucos dias de trabalho disponíveis.</div>}
-                {m.restamCAIDI <= 0 && <div style={{ fontSize: 11, color: C.red, fontWeight: 700, marginTop: 6 }}>🔴 Já usaste todos os dias de trabalho. Se precisares de faltar, contacta a gestão.</div>}
-              </Card>
-              );
-            })()}
             <div style={{ marginTop: 12 }}><Btn onClick={() => setShowForm("ferias")}>📝 Pedir Férias</Btn></div>
             {m.feriadoMun && (
               <Card delay={0.08} style={{ marginTop: 10, background: "linear-gradient(135deg, " + C.blueBg + ", " + C.white + ")", border: "1px solid #b8d4e3" }}>
@@ -2454,7 +2547,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     {!tIsADM && m2.ef >= m2.mE2 && m2.ef < m2.mE3 && <div style={{ fontSize: 10, color: "#d4a017", fontWeight: 700, marginTop: 2 }}>⭐ 5€ por apoio</div>}
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0, fontSize: 10 }}>
-                    {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/sem → " + m2.limiteCAIDI + " dias CAIDI"}>📋 <span style={{ fontWeight: 800, color: m2.restamCAIDI <= 2 ? C.red : C.blue }}>{m2.restamCAIDI}</span><span style={{ color: C.gray }}>/{m2.limiteCAIDI}</span></div>}
+                    {m2.diasTrab < 5 && <div title={m2.diasTrab + " dias/semana"}>📋 <span style={{ fontWeight: 800, color: C.blue }}>{m2.diasTrab}d/sem</span></div>}
                     <div>🌴 <span style={{ fontWeight: 800, color: m2.oR <= 3 ? C.red : C.teal }}>{m2.oR}</span></div>
                     {m2.dB > 0 && <div>🏥 <span style={{ fontWeight: 800, color: C.purple }}>{m2.dB}d</span></div>}
                     {m2.dFI > 0 && <div>⚠️ <span style={{ fontWeight: 800, color: C.red }}>{m2.dFI}</span></div>}
@@ -2486,7 +2579,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                   <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>{fmtDF(p["Data Início"])} → {fmtDF(p["Data Fim"])} · {fmtDias(p["Dias Úteis"], p["Período"])}</div>
                   {m2t && m2t.diasTrab < 5 && p.Motivo.includes("Férias") && (
                     <div style={{ display: "inline-flex", alignItems: "center", gap: 4, background: C.blueBg, color: C.blue, padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 700, marginTop: 4 }}>
-                      📋 {m2t.diasTrab}d/sem · CAIDI: {m2t.restamCAIDI}/{m2t.limiteCAIDI} disponíveis
+                      📋 {m2t.diasTrab}d/semana · Restam {m2t.oR}d obrigatórios
                     </div>
                   )}
                   {p.Observações && <div style={{ fontSize: 12, color: C.darkSoft, fontStyle: "italic", marginTop: 3 }}>"{p.Observações}"</div>}
@@ -2668,7 +2761,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       </div>
                       {m2.diasTrab < 5 && (
                         <div style={{ marginTop: 8, padding: "6px 10px", background: C.white, borderRadius: 8, fontSize: 11, color: C.darkSoft }}>
-                          📋 Dias CAIDI: <strong>{m2.usadosCAIDI}</strong> usados de <strong>{m2.limiteCAIDI}</strong> ({m2.diasFeriasCAIDI} obrig.{m2.diasBonusCAIDI > 0 ? " + " + m2.diasBonusCAIDI + " bónus" : ""}) · <strong style={{ color: m2.restamCAIDI <= 2 ? C.red : C.green }}>{m2.restamCAIDI} disponíveis</strong>
+                          📋 Trabalha {m2.diasTrab} dias/semana · Férias: <strong>{m2.fU}/{Number(t2 && t2["Dias Férias"] || 22)}</strong> obrig. usados · <strong style={{ color: m2.oR <= 3 ? C.red : C.green }}>{m2.oR} restantes</strong>
                         </div>
                       )}
                       {!tIsADM && (
