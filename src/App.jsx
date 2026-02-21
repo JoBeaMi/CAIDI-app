@@ -300,28 +300,65 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   
   // Contar dias reais de férias em dias úteis (merge intervalos, excluir fecho/feriados)
   const fmtYMDcalc = (d) => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-  const diasFeriasSet = new Set();
+  
+  // Contar separadamente obrigatórias e bónus pelo Motivo real na folha
+  // Fallback: pedidos antigos com Motivo "Férias (Obrigatórias)" que na verdade são isolados
+  // → detectar retroativamente: se não cobre semana completa, conta como bónus
+  const diasObrigSet = new Set();
+  const diasBonusSet = new Set();
   feriasPedidas.forEach(fp => {
     if (!fp["Data Início"] || !fp["Data Fim"]) return;
-    const d = new Date(fp["Data Início"] + "T12:00:00"), fim = new Date(fp["Data Fim"] + "T12:00:00");
-    while (d <= fim) {
-      const ds = fmtYMDcalc(d);
-      if (d.getDay() !== 0 && d.getDay() !== 6 && !isFeriadoTerap(ds, feriadoMun) && !fechoSet.has(ds)) {
-        diasFeriasSet.add(ds);
+    const isExplicitBonus = fp.Motivo === "Férias (Bónus)";
+    
+    // Recolher dias deste pedido
+    const pedDias = [];
+    const d2 = new Date(fp["Data Início"] + "T12:00:00"), fim2 = new Date(fp["Data Fim"] + "T12:00:00");
+    while (d2 <= fim2) {
+      const ds2 = fmtYMDcalc(d2);
+      if (d2.getDay() !== 0 && d2.getDay() !== 6 && !isFeriadoTerap(ds2, feriadoMun) && !fechoSet.has(ds2)) {
+        pedDias.push({ date: ds2, dow: d2.getDay() });
       }
-      d.setDate(d.getDate() + 1);
+      d2.setDate(d2.getDate() + 1);
     }
+    
+    // Determinar se é bónus: explícito OU retroativo (não cobre semana completa)
+    let isBonus = isExplicitBonus;
+    if (!isExplicitBonus && pedDias.length > 0) {
+      // Agrupar por semana e verificar se cobre semana completa
+      const semCheck = {};
+      pedDias.forEach(pd => {
+        const dt = new Date(pd.date + "T12:00:00");
+        const mon = new Date(dt);
+        mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1));
+        const key = mon.toISOString().slice(0,10);
+        if (!semCheck[key]) semCheck[key] = new Set();
+        semCheck[key].add(pd.date);
+      });
+      // Verificar cada semana: todos os 5 dias úteis cobertos? (pedido + fecho + feriado + não trabalha)
+      let algumaSemIncompleta = false;
+      Object.entries(semCheck).forEach(([monKey, diasPedSet]) => {
+        for (let i = 0; i < 5; i++) {
+          const wd = new Date(monKey + "T12:00:00");
+          wd.setDate(wd.getDate() + i);
+          const wds = wd.toISOString().slice(0,10);
+          const dow = wd.getDay();
+          const coberto = fechoSet.has(wds) || isFeriadoTerap(wds, feriadoMun) || !trabalhaDia(hor, dow) || diasPedSet.has(wds);
+          if (!coberto) { algumaSemIncompleta = true; break; }
+        }
+      });
+      if (algumaSemIncompleta) isBonus = true;
+    }
+    
+    pedDias.forEach(pd => {
+      if (isBonus) diasBonusSet.add(pd.date); else diasObrigSet.add(pd.date);
+    });
   });
-  const totalFeriasReais = diasFeriasSet.size;
+  const totalFeriasReais = diasObrigSet.size + diasBonusSet.size;
   
-  // Distribuir: primeiro preenche obrigatórias (22), resto vai para bónus
   const diasFeriasLegais = Number(t["Dias Férias"]) || 22;
-  const maxObrigRestantes = Math.max(diasFeriasLegais - tF, 0);
-  const fUPedidas = Math.min(totalFeriasReais, maxObrigRestantes);
-  const fU = fUPedidas + tF;
-  const bU = Math.max(totalFeriasReais - fUPedidas, 0);
+  const fU = Math.min(diasObrigSet.size, diasFeriasLegais - tF) + tF;
+  const bU = diasBonusSet.size;
   const oR = Math.max(diasFeriasLegais - fU, 0);
-  // Bónus: proporcionais ao horário (quem trabalha 3d/sem, cada bónus = 1 dia de trabalho)
   const dBn = Number(t["Dias Bónus Ganhos"] || 0);
   const hSemanaisContrato = Number(t["Horas Semanais"]) || 40;
   const maxBonusPossivel = 15;
