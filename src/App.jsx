@@ -660,30 +660,30 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
       semanas[key].push(pd);
     });
     
-    // Para cada semana: verificar se o pedido cobre TODOS os dias de trabalho
+    // Para cada semana: verificar se TODOS os 5 dias úteis estão cobertos
+    // Coberto = no pedido, OU fecho, OU feriado, OU dia em que não trabalha
+    // Se tudo coberto → semana inteira sem CAIDI → obrigatórias
     let todasSemanasCobertas = true;
     const semsIncompletas = [];
     const dayNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
     
     Object.entries(semanas).forEach(([monKey, diasPedido]) => {
-      // Quais dias de trabalho existem nesta semana? (excl. fecho/feriados)
-      const diasTrabalhoSemana = [];
+      const diasPedidoSet = new Set(diasPedido.map(dd => dd.date));
+      const diasNaoCobertos = [];
+      
       for (let i = 0; i < 5; i++) {
         const wd = new Date(monKey + "T12:00:00");
         wd.setDate(wd.getDate() + i);
         const wds = wd.toISOString().slice(0,10);
         const dow = wd.getDay();
-        if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun) && trabalhaDia(hor, dow)) {
-          diasTrabalhoSemana.push({ date: wds, dow });
+        // Este dia está coberto se: é fecho, é feriado, não trabalha nesse dia, ou está no pedido
+        const coberto = fechoS.has(wds) || isFeriadoTerap(wds, metrics.feriadoMun) || !trabalhaDia(hor, dow) || diasPedidoSet.has(wds);
+        if (!coberto) {
+          diasNaoCobertos.push({ date: wds, dow });
         }
       }
       
-      // Verificar se o pedido cobre todos os dias de trabalho desta semana
-      const diasPedidoSet = new Set(diasPedido.map(dd => dd.date));
-      const diasNaoCobertos = diasTrabalhoSemana.filter(dt => !diasPedidoSet.has(dt.date));
-      
       if (diasNaoCobertos.length > 0) {
-        // Nem todos os dias de trabalho cobertos → semana incompleta
         todasSemanasCobertas = false;
         semsIncompletas.push({ weekOf: monKey, gaps: diasNaoCobertos.map(d2 => dayNames[d2.dow]) });
       }
@@ -1653,7 +1653,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
               </div>
               <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: mq.diff >= 0 ? C.greenBg : C.yellowBg, textAlign: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: mq.diff >= 0 ? C.green : C.red }}>
-                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingido!" : "❌ Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
+                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingido!" : "❌Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
                 </span>
                 {!mq.passado && mq.proj > 0 && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>📈 Projeção: ~{mq.proj} apoios até ao fim</div>}
               </div>
