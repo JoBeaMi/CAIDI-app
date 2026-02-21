@@ -343,10 +343,9 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
     // Se o pedido não tem dias reais (tudo fecho/feriado) → ignorar
     if (pedDias.length === 0) return;
     
-    // Determinar se é bónus: explícito OU retroativo (não cobre semana completa)
-    let isBonus = isExplicitBonus;
+    // Determinar tipo POR SEMANA (não por pedido inteiro)
+    // Semana completa → obrigatórias | Semana incompleta → bónus
     if (!isExplicitBonus && pedDias.length > 0) {
-      // Agrupar por semana e verificar se cobre semana completa
       const semCheck = {};
       pedDias.forEach(pd => {
         const dt = new Date(pd.date + "T12:00:00");
@@ -356,24 +355,39 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
         if (!semCheck[key]) semCheck[key] = new Set();
         semCheck[key].add(pd.date);
       });
-      // Verificar cada semana: todos os 5 dias úteis cobertos? (pedido + fecho + feriado + não trabalha)
-      let algumaSemIncompleta = false;
+      
+      // Para cada semana: verificar se completa
+      const semanasCompletas = new Set();
       Object.entries(semCheck).forEach(([monKey, diasPedSet]) => {
+        let completa = true;
         for (let i = 0; i < 5; i++) {
           const wd = new Date(monKey + "T12:00:00");
           wd.setDate(wd.getDate() + i);
           const wds = wd.toISOString().slice(0,10);
           const dow = wd.getDay();
           const coberto = fechoSet.has(wds) || isFeriadoTerap(wds, feriadoMun) || !trabalhaDia(hor, dow) || diasPedSet.has(wds);
-          if (!coberto) { algumaSemIncompleta = true; break; }
+          if (!coberto) { completa = false; break; }
+        }
+        if (completa) semanasCompletas.add(monKey);
+      });
+      
+      // Distribuir dias: semana completa → obrig, incompleta → bónus
+      pedDias.forEach(pd => {
+        const dt = new Date(pd.date + "T12:00:00");
+        const mon = new Date(dt);
+        mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1));
+        const key = mon.toISOString().slice(0,10);
+        if (semanasCompletas.has(key)) {
+          diasObrigSet.add(pd.date);
+        } else {
+          diasBonusSet.add(pd.date);
         }
       });
-      if (algumaSemIncompleta) isBonus = true;
+    } else {
+      pedDias.forEach(pd => {
+        if (isExplicitBonus) diasBonusSet.add(pd.date); else diasObrigSet.add(pd.date);
+      });
     }
-    
-    pedDias.forEach(pd => {
-      if (isBonus) diasBonusSet.add(pd.date); else diasObrigSet.add(pd.date);
-    });
   });
   const totalFeriasReais = diasObrigSet.size + diasBonusSet.size;
   
