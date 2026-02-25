@@ -387,11 +387,13 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
         }
       });
     } else {
-      // Full-time: ignorar motivo, todos os dias vão para um pool único
-      // Distribuição automática no cálculo final (primeiro obrig, resto bónus)
-      pedDias.forEach(pd => {
-        diasObrigSet.add(pd.date);
-      });
+      // Full-time: pool único — todos os dias vão para obrigSet
+      // Part-time com bónus explícito: respeitar motivo, vai para bonusSet
+      if (isPartTime && isExplicitBonus) {
+        pedDias.forEach(pd => diasBonusSet.add(pd.date));
+      } else {
+        pedDias.forEach(pd => diasObrigSet.add(pd.date));
+      }
     }
   });
   const totalFeriasReais = diasObrigSet.size + diasBonusSet.size;
@@ -400,12 +402,12 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const isPartTimeCalc = hor && hor.diasTrab < 5;
   
   if (isPartTimeCalc) {
-    // Part-time: obrig e bónus já separados pela deteção per-semana
+    // Part-time: obrig e bónus já separados pela deteção per-semana + motivo explícito
     var fU = Math.min(diasObrigSet.size, diasFeriasLegais - tF) + tF;
     var bU = diasBonusSet.size;
   } else {
     // Full-time: distribuir automaticamente — primeiro obrigatórios, resto bónus
-    const totalDiasPedidos = diasObrigSet.size; // tudo foi para obrigSet
+    const totalDiasPedidos = diasObrigSet.size;
     const maxObrig = Math.max(diasFeriasLegais - tF, 0);
     const diasObrigReais = Math.min(totalDiasPedidos, maxObrig);
     var fU = diasObrigReais + tF;
@@ -826,7 +828,31 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     // = bónus restantes + resíduo obrigatório (se oR < 5, os dias que não cabem numa semana)
     const residuoObrig = metrics.oR < 5 ? metrics.oR % 5 : 0;
     const diasIsoladosPermitidos = metrics.bR + residuoObrig;
-    
+
+    // Verificar se os dias isolados são consecutivos (sem gaps de dias de trabalho entre eles)
+    const diasIsoladosSorted = semanasIncompletas.flatMap(si => si.dias).sort((a, b) => a.date.localeCompare(b.date));
+    let saoConsecutivos = true;
+    if (diasIsoladosSorted.length > 1) {
+      for (let i = 0; i < diasIsoladosSorted.length - 1; i++) {
+        const dA = new Date(diasIsoladosSorted[i].date + "T12:00:00");
+        const dB = new Date(diasIsoladosSorted[i + 1].date + "T12:00:00");
+        const cur = new Date(dA); cur.setDate(cur.getDate() + 1);
+        while (cur < dB) {
+          const cds = cur.toISOString().slice(0, 10);
+          const dow = cur.getDay();
+          if (dow >= 1 && dow <= 5 && !fechoS.has(cds) && !isFeriadoTerap(cds, metrics.feriadoMun) && trabalhaDia(hor, dow)) {
+            saoConsecutivos = false;
+            break;
+          }
+          cur.setDate(cur.getDate() + 1);
+        }
+        if (!saoConsecutivos) break;
+      }
+    }
+    if (!saoConsecutivos) {
+      return { tipo: "bonus", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, naoConsecutivos: true };
+    }
+
     if (diasEmSemanasIncompletas <= diasIsoladosPermitidos) {
       // Cabe nos isolados permitidos → aceitar
       if (semanasCompletas.length > 0) {
@@ -844,6 +870,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     if (!fD.inicio || !fD.fim) return;
     if (isFerias && emLetivo && !justLetivo.trim()) { setErrMsg("Pedido em período letivo — indica o motivo da exceção."); return; }
     if (isFerias && feriasAnalise.devExpandir) { setErrMsg("Seleciona de 2ª a 6ª para cobrir a semana completa."); return; }
+    if (isFerias && feriasAnalise.naoConsecutivos) { setErrMsg("Os dias isolados têm de ser seguidos. Seleciona um intervalo contínuo."); return; }
     if (isFerias && feriasAnalise.isolado) { setErrMsg("Já não tens dias isolados. Marca em semanas completas (2ª a 6ª)."); return; }
     
     // Validar se não ultrapassa total de férias disponível
@@ -1012,6 +1039,14 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
             })()}
             {isFerias && fechoNoPedido > 0 && (
               <div style={{ background: C.grayBg, padding: "10px 12px", borderRadius: 12, fontSize: 13, color: C.darkSoft, fontWeight: 600, marginBottom: 16, border: "1px solid " + C.grayLight }}>🔒 Este período inclui <strong>{fechoNoPedido} dia{fechoNoPedido > 1 ? "s" : ""} de fecho</strong> do CAIDI — já descontado{fechoNoPedido > 1 ? "s" : ""} automaticamente.</div>
+            )}
+            {isFerias && feriasAnalise.naoConsecutivos && (
+              <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
+                <div style={{ color: C.red }}>📅 Dias têm de ser seguidos</div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
+                  Os dias isolados têm de ser <strong>consecutivos</strong>. Seleciona um intervalo contínuo sem saltar dias de trabalho.
+                </div>
+              </div>
             )}
             {isFerias && feriasAnalise.devExpandir && (
               <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
