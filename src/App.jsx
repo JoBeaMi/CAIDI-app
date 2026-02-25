@@ -1827,7 +1827,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
               </div>
               <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 10, background: mq.diff >= 0 ? C.greenBg : C.yellowBg, textAlign: "center" }}>
                 <span style={{ fontSize: 13, fontWeight: 800, color: mq.diff >= 0 ? C.green : C.red }}>
-                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objetivo atingido!" : "❌ Objetivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
+                  {mq.passado ? (mq.ef >= mq.mMin ? "✅ Objectivo atingido!" : "❌ Objectivo não atingido") : (mq.diff >= 0 ? "🟢 +" + mq.diff + " à frente do ritmo" : "🔴 " + Math.abs(mq.diff) + " abaixo do ritmo")}
                 </span>
                 {!mq.passado && mq.proj > 0 && <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 2 }}>📈 Projeção: ~{mq.proj} apoios até ao fim</div>}
               </div>
