@@ -387,17 +387,30 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
         }
       });
     } else {
-      // Full-time ou explicitamente bónus: sem deteção de semana
+      // Full-time: ignorar motivo, todos os dias vão para um pool único
+      // Distribuição automática no cálculo final (primeiro obrig, resto bónus)
       pedDias.forEach(pd => {
-        if (isExplicitBonus) diasBonusSet.add(pd.date); else diasObrigSet.add(pd.date);
+        diasObrigSet.add(pd.date);
       });
     }
   });
   const totalFeriasReais = diasObrigSet.size + diasBonusSet.size;
   
   const diasFeriasLegais = Number(t["Dias Férias"]) || 22;
-  const fU = Math.min(diasObrigSet.size, diasFeriasLegais - tF) + tF;
-  const bU = diasBonusSet.size;
+  const isPartTimeCalc = hor && hor.diasTrab < 5;
+  
+  if (isPartTimeCalc) {
+    // Part-time: obrig e bónus já separados pela deteção per-semana
+    var fU = Math.min(diasObrigSet.size, diasFeriasLegais - tF) + tF;
+    var bU = diasBonusSet.size;
+  } else {
+    // Full-time: distribuir automaticamente — primeiro obrigatórios, resto bónus
+    const totalDiasPedidos = diasObrigSet.size; // tudo foi para obrigSet
+    const maxObrig = Math.max(diasFeriasLegais - tF, 0);
+    const diasObrigReais = Math.min(totalDiasPedidos, maxObrig);
+    var fU = diasObrigReais + tF;
+    var bU = Math.max(totalDiasPedidos - maxObrig, 0);
+  }
   const oR = Math.max(diasFeriasLegais - fU, 0);
   const dBn = Number(t["Dias Bónus Ganhos"] || 0);
   const hSemanaisContrato = Number(t["Horas Semanais"]) || 40;
