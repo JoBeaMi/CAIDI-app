@@ -343,9 +343,12 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
     // Se o pedido não tem dias reais (tudo fecho/feriado) → ignorar
     if (pedDias.length === 0) return;
     
-    // Determinar tipo POR SEMANA (não por pedido inteiro)
-    // Semana completa → obrigatórias | Semana incompleta → bónus
-    if (!isExplicitBonus && pedDias.length > 0) {
+    // Determinar tipo POR SEMANA (só para part-time)
+    // Full-time: tudo obrigatório (distribuição automática por ordem: primeiro 22 obrig, resto bónus)
+    // Part-time: semana completa → obrigatórias | semana incompleta → bónus
+    const isPartTime = hor && hor.diasTrab < 5;
+    
+    if (!isExplicitBonus && isPartTime && pedDias.length > 0) {
       const semCheck = {};
       pedDias.forEach(pd => {
         const dt = new Date(pd.date + "T12:00:00");
@@ -384,6 +387,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
         }
       });
     } else {
+      // Full-time ou explicitamente bónus: sem deteção de semana
       pedDias.forEach(pd => {
         if (isExplicitBonus) diasBonusSet.add(pd.date); else diasObrigSet.add(pd.date);
       });
@@ -722,6 +726,13 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     }
     if (pedidoDias.length === 0) return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: 0 };
     
+    // Full-time (5d/sem): sem restrição de semana completa, tudo aceite
+    const isPartTime = hor && hor.diasTrab < 5;
+    if (!isPartTime) {
+      return { tipo: "obrigatorias", isolado: false, semIncompleta: null, diasReais: pedidoDias.length, devExpandir: false };
+    }
+    
+    // ── Part-time: verificar semanas completas ──
     // Agrupar por semana (segunda-feira)
     const semanas = {};
     pedidoDias.forEach(pd => {
@@ -773,7 +784,9 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
         const wd = new Date(monKey + "T12:00:00");
         wd.setDate(wd.getDate() + i);
         const wds = wd.toISOString().slice(0,10);
-        if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun)) {
+        const dow = wd.getDay();
+        // Dia já coberto se: fecho, feriado, ou não trabalha → não precisa estar no pedido
+        if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun) && trabalhaDia(hor, dow)) {
           if (!pedidoDias.find(dd => dd.date === wds)) {
             devExpandir = true;
             if (!semsParaCorrigir.find(s => s.weekOf === monKey)) {
@@ -1354,6 +1367,9 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                   </div>
                   <div style={{ fontSize: 14, color: C.tealDark, fontWeight: 800, lineHeight: 1.6, marginBottom: 10, background: "rgba(0,168,157,0.08)", padding: "8px 10px", borderRadius: 10, borderLeft: "3px solid " + C.teal }}>
                     {frase.cta}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.darkSoft, lineHeight: 1.5, padding: "6px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 10 }}>
+                    Sessões de terapia, avaliações, reuniões de escola e intervenção parental. Cada apoio dura 45 minutos.
                   </div>
                 </Card>
               );
