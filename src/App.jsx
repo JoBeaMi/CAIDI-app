@@ -2287,6 +2287,12 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   const [searchTer, setSearchTer] = useState("");
   const [adminQuadIdx, setAdminQuadIdx] = useState(null);
 
+  // Trend semanal
+  const [trendData, setTrendData] = useState(null);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendSearch, setTrendSearch] = useState("");
+  const [trendSelTerap, setTrendSelTerap] = useState(null);
+
   // Form registar falta
   const [faltaTer, setFaltaTer] = useState("");
   const [faltaInicio, setFaltaInicio] = useState("");
@@ -2389,6 +2395,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
     { id: "pendentes", icon: "⏳", l: "Pedidos", badge: pend.length + compPendCount },
     { id: "falta", icon: "⚠️", l: "Reg. Falta" },
     { id: "historico", icon: "📋", l: "Histórico" },
+    { id: "trend", icon: "📈", l: "Tendência" },
   ];
 
   return (
@@ -3024,6 +3031,222 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             )}
           </div>
         )}
+
+        {/* ═══ TAB TREND ═══ */}
+        {adminTab === "trend" && (() => {
+          const loadTrend = async () => {
+            if (trendData || trendLoading) return;
+            setTrendLoading(true);
+            try {
+              const r = await apiGet("trendSemanal");
+              setTrendData(r);
+            } catch (err) { alert("Erro ao carregar tendência: " + err.message); }
+            setTrendLoading(false);
+          };
+          if (!trendData && !trendLoading) loadTrend();
+
+          if (trendLoading) return (
+            <div style={{ textAlign: "center", padding: 40, color: C.gray }}>
+              <div style={{ fontSize: 32, animation: "float 2s ease infinite" }}>📈</div>
+              <div style={{ fontSize: 13, marginTop: 8 }}>A carregar tendências...</div>
+            </div>
+          );
+          if (!trendData) return null;
+
+          const td = trendData;
+          const semanas = td.semanas || [];
+          const lastWeek = semanas.length > 0 ? semanas[semanas.length - 1] : null;
+          const prevWeek = semanas.length > 1 ? semanas[semanas.length - 2] : null;
+          const weekDiff = lastWeek && prevWeek ? lastWeek.total - prevWeek.total : 0;
+          const weekPct = prevWeek && prevWeek.total > 0 ? Math.round((weekDiff / prevWeek.total) * 100) : 0;
+
+          // Mini bar chart (últimas 12 semanas)
+          const last12 = semanas.slice(-12);
+          const maxVal = Math.max(...last12.map(s => s.total), 1);
+
+          // Terapeuta selecionada
+          const selTerap = trendSelTerap;
+          const selData = selTerap && semanas.length > 0 ? semanas.map(s => ({
+            label: s.label,
+            val: s.ter && s.ter[selTerap] ? s.ter[selTerap].total : 0,
+            falt: s.ter && s.ter[selTerap] ? s.ter[selTerap].faltou : 0,
+          })).slice(-16) : null;
+          const selMax = selData ? Math.max(...selData.map(s => s.val), 1) : 1;
+          const selNome = selTerap && td.terapeutas ? td.terapeutas[selTerap] || selTerap : "";
+          const selNomeAbrev = selNome ? selNome.split(" ")[0] + " " + selNome.split(" ").pop() : "";
+
+          // Pesquisa
+          const terapList = td.topTerapeutas || [];
+          const searchLower = trendSearch.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+          const filtered = searchLower ? terapList.filter(t => t.nome.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(searchLower)) : [];
+
+          return (
+            <div>
+              <h2 style={{ fontSize: 17, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>📈 Tendência Semanal</h2>
+
+              {/* Resumo rápido */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
+                <Card style={{ textAlign: "center", padding: 12 }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: C.teal }}>{td.totalSemanas}</div>
+                  <div style={{ fontSize: 10, color: C.darkSoft }}>Semanas</div>
+                </Card>
+                <Card style={{ textAlign: "center", padding: 12 }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: C.blue }}>{td.mediaGlobal}</div>
+                  <div style={{ fontSize: 10, color: C.darkSoft }}>Média/sem</div>
+                </Card>
+                <Card style={{ textAlign: "center", padding: 12 }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: weekDiff >= 0 ? C.green : C.red }}>
+                    {weekDiff >= 0 ? "+" : ""}{weekDiff}
+                  </div>
+                  <div style={{ fontSize: 10, color: C.darkSoft }}>vs anterior</div>
+                </Card>
+              </div>
+
+              {/* Mini bar chart - equipa */}
+              <Card style={{ marginBottom: 12, padding: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 10 }}>Total Equipa — últimas 12 semanas</div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 80 }}>
+                  {last12.map((s, i) => {
+                    const h = Math.max((s.total / maxVal) * 70, 2);
+                    const isLast = i === last12.length - 1;
+                    return (
+                      <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                        <div style={{ fontSize: 8, color: C.darkSoft, marginBottom: 2 }}>{s.total}</div>
+                        <div style={{ width: "100%", height: h, borderRadius: 3, background: isLast ? C.teal : (s.total >= td.mediaGlobal ? C.tealSoft : C.grayLight), transition: "height 0.3s" }} />
+                        <div style={{ fontSize: 7, color: C.gray, marginTop: 2 }}>{s.label.split("-")[0]}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+
+              {/* 🏆 Top Semanas */}
+              <Card style={{ marginBottom: 12, padding: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 8 }}>🏆 Top 5 Semanas</div>
+                {(td.topSemanas || []).map((s, i) => {
+                  const medals = ["🥇", "🥈", "🥉", "4.", "5."];
+                  return (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: i < 4 ? "1px solid " + C.grayLight : "none", fontSize: 12 }}>
+                      <span>{medals[i]} {s.label}</span>
+                      <span style={{ fontWeight: 700, color: C.tealDark }}>{s.total} apoios</span>
+                    </div>
+                  );
+                })}
+              </Card>
+
+              {/* 🔻 Piores Semanas */}
+              <Card style={{ marginBottom: 12, padding: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 8 }}>🔻 Bottom 5 Semanas</div>
+                {(td.worstSemanas || []).map((s, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: i < 4 ? "1px solid " + C.grayLight : "none", fontSize: 12 }}>
+                    <span>{i + 1}. {s.label}</span>
+                    <span style={{ fontWeight: 700, color: C.red }}>{s.total} apoios {s.faltou > 0 && <span style={{ fontSize: 10 }}>({s.faltou} falt)</span>}</span>
+                  </div>
+                ))}
+              </Card>
+
+              {/* 👤 Top Terapeutas */}
+              <Card style={{ marginBottom: 12, padding: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 8 }}>👤 Top 10 Terapeutas (média/semana)</div>
+                {(td.topTerapeutas || []).slice(0, 10).map((t, i) => {
+                  const medals = ["🥇", "🥈", "🥉"];
+                  const nome = t.nome.split(" ");
+                  const nAbrev = nome[0] + " " + nome[nome.length - 1];
+                  return (
+                    <div key={i} onClick={() => { setTrendSelTerap(t.id); setTrendSearch(nAbrev); }}
+                      style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: i < 9 ? "1px solid " + C.grayLight : "none", fontSize: 12, cursor: "pointer" }}>
+                      <span>{i < 3 ? medals[i] : (i + 1) + "."} {nAbrev}</span>
+                      <span>
+                        <span style={{ fontWeight: 700, color: C.tealDark }}>{t.media}/sem</span>
+                        {t.faltou > 0 && <span style={{ color: C.red, fontSize: 10, marginLeft: 6 }}>({t.faltou} falt)</span>}
+                      </span>
+                    </div>
+                  );
+                })}
+              </Card>
+
+              {/* 🔎 Pesquisa individual */}
+              <Card style={{ marginBottom: 12, padding: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: C.dark, marginBottom: 8 }}>🔎 Ver terapeuta individual</div>
+                <input
+                  type="text"
+                  value={trendSearch}
+                  onChange={e => { setTrendSearch(e.target.value); setTrendSelTerap(null); }}
+                  placeholder="Escreve o nome..."
+                  style={{ width: "100%", padding: "8px 12px", borderRadius: 10, border: "1px solid " + C.grayLight, fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                />
+                {searchLower && filtered.length > 0 && !trendSelTerap && (
+                  <div style={{ marginTop: 6 }}>
+                    {filtered.slice(0, 5).map((t, i) => {
+                      const nome = t.nome.split(" ");
+                      return (
+                        <div key={i} onClick={() => { setTrendSelTerap(t.id); setTrendSearch(nome[0] + " " + nome[nome.length - 1]); }}
+                          style={{ padding: "6px 8px", fontSize: 12, cursor: "pointer", borderRadius: 8, background: i % 2 === 0 ? C.grayBg : C.white }}>
+                          {t.nome} <span style={{ color: C.gray }}>· {t.media}/sem</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+
+              {/* Gráfico individual */}
+              {selTerap && selData && (
+                <Card style={{ marginBottom: 12, padding: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: C.dark }}>📊 {selNomeAbrev}</div>
+                      <div style={{ fontSize: 11, color: C.darkSoft }}>Últimas {selData.length} semanas</div>
+                    </div>
+                    <button onClick={() => { setTrendSelTerap(null); setTrendSearch(""); }}
+                      style={{ background: C.grayLight, border: "none", borderRadius: 8, padding: "4px 10px", fontSize: 11, cursor: "pointer", color: C.darkSoft }}>✕</button>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 100, marginTop: 8 }}>
+                    {selData.map((s, i) => {
+                      const h = Math.max((s.val / selMax) * 85, 2);
+                      const hF = s.falt > 0 ? Math.max((s.falt / selMax) * 85, 2) : 0;
+                      const prev = i > 0 ? selData[i - 1].val : s.val;
+                      const isDown = s.val < prev && prev > 0;
+                      return (
+                        <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                          <div style={{ fontSize: 8, color: isDown ? C.red : C.darkSoft, fontWeight: isDown ? 700 : 400, marginBottom: 2 }}>{s.val}</div>
+                          <div style={{ width: "100%", position: "relative" }}>
+                            <div style={{ width: "100%", height: h, borderRadius: 3, background: isDown ? "#FFEAEA" : C.tealSoft }} />
+                            {hF > 0 && <div style={{ position: "absolute", bottom: 0, width: "100%", height: hF, borderRadius: "0 0 3px 3px", background: C.red + "44" }} />}
+                          </div>
+                          <div style={{ fontSize: 7, color: C.gray, marginTop: 2 }}>{s.label.split("-")[0]}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {(() => {
+                    const totalSel = selData.reduce((s, d) => s + d.val, 0);
+                    const mediaSel = (totalSel / selData.length).toFixed(1);
+                    const totalFalt = selData.reduce((s, d) => s + d.falt, 0);
+                    // Tendência: comparar últimas 4 semanas com 4 anteriores
+                    const last4 = selData.slice(-4).reduce((s, d) => s + d.val, 0);
+                    const prev4 = selData.slice(-8, -4).reduce((s, d) => s + d.val, 0);
+                    const trendUp = last4 > prev4;
+                    const trendLabel = prev4 > 0 ? (trendUp ? "📈 Em subida" : "📉 Em descida") : "";
+                    return (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10, fontSize: 11 }}>
+                        <span style={{ color: C.tealDark, fontWeight: 700 }}>Média: {mediaSel}/sem</span>
+                        <span style={{ color: C.darkSoft }}>Total: {totalSel}</span>
+                        {totalFalt > 0 && <span style={{ color: C.red, fontWeight: 700 }}>Faltou: {totalFalt}</span>}
+                        {trendLabel && <span style={{ color: trendUp ? C.green : C.red, fontWeight: 700 }}>{trendLabel}</span>}
+                      </div>
+                    );
+                  })()}
+                </Card>
+              )}
+
+              <button onClick={() => { setTrendData(null); setTrendSelTerap(null); setTrendSearch(""); }}
+                style={{ width: "100%", padding: 10, borderRadius: 12, border: "1px solid " + C.grayLight, background: C.white, fontSize: 12, color: C.darkSoft, cursor: "pointer", marginBottom: 12 }}>
+                🔄 Atualizar dados
+              </button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Bottom nav */}
