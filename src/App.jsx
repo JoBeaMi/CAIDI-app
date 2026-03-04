@@ -21,8 +21,8 @@ const C = {
 
 /* ═══════════════════════ API ═══════════════════════ */
 async function apiGet(action, params = {}) {
-  const qs = new URLSearchParams({ action, ...params }).toString();
-  const res = await fetch(`${API_URL}?${qs}`);
+  const qs = new URLSearchParams({ action, ...params, _t: Date.now() }).toString();
+  const res = await fetch(`${API_URL}?${qs}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   if (data.erro) throw new Error(data.erro);
