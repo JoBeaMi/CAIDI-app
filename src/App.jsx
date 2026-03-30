@@ -375,29 +375,36 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
           wd.setDate(wd.getDate() + i);
           const wds = toLocalISO(wd);
           const dow = wd.getDay();
-          const coberto = fechoSet.has(wds) || isFeriadoTerap(wds, feriadoMun) || !trabalhaDia(hor, dow) || diasPedSet.has(wds);
+          const coberto = fechoSet.has(wds) || isFeriadoTerap(wds, feriadoMun) || diasPedSet.has(wds);
           if (!coberto) { completa = false; break; }
         }
         if (completa) semanasCompletas.add(monKey);
       });
       
-      // Distribuir dias: semana completa → obrig, incompleta → bónus
+      // Distribuir dias: semana completa → obrig (todos os 5 dias úteis), incompleta → bónus (só dias de trabalho)
       pedDias.forEach(pd => {
         const dt = new Date(pd.date + "T12:00:00");
         const mon = new Date(dt);
         mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1));
         const key = toLocalISO(mon);
         if (semanasCompletas.has(key)) {
-          diasObrigSet.add(pd.date);
+          diasObrigSet.add(pd.date); // semana completa: todos os dias úteis contam
         } else {
-          diasBonusSet.add(pd.date);
+          // Bónus: só conta dias que efetivamente trabalha
+          if (trabalhaDia(hor, pd.dow)) {
+            diasBonusSet.add(pd.date);
+          }
         }
       });
     } else {
       // Full-time: pool único — todos os dias vão para obrigSet
-      // Part-time com bónus explícito: respeitar motivo, vai para bonusSet
+      // Part-time com bónus explícito: só dias que trabalha vão para bonusSet
       if (isPartTime && isExplicitBonus) {
-        pedDias.forEach(pd => diasBonusSet.add(pd.date));
+        pedDias.forEach(pd => {
+          if (trabalhaDia(hor, pd.dow)) {
+            diasBonusSet.add(pd.date);
+          }
+        });
       } else {
         pedDias.forEach(pd => diasObrigSet.add(pd.date));
       }
@@ -767,7 +774,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     });
     
     // Para cada semana: verificar se TODOS os 5 dias úteis estão cobertos
-    // Coberto = no pedido, OU fecho, OU feriado, OU dia em que não trabalha
+   // Coberto = no pedido, OU fecho, OU feriado (dias que não trabalha NÃO contam — tem de marcar calendário completo)
     const semanasCompletas = []; // semanas onde tudo está coberto → obrigatórias
     const semanasIncompletas = []; // semanas com gaps → bónus/isolado
     const dayNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
@@ -781,7 +788,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
         wd.setDate(wd.getDate() + i);
         const wds = toLocalISO(wd);
         const dow = wd.getDay();
-        const coberto = fechoS.has(wds) || isFeriadoTerap(wds, metrics.feriadoMun) || !trabalhaDia(hor, dow) || diasPedidoSet.has(wds);
+        const coberto = fechoS.has(wds) || isFeriadoTerap(wds, metrics.feriadoMun) || diasPedidoSet.has(wds);
         if (!coberto) {
           diasNaoCobertos.push({ date: wds, dow });
         }
@@ -790,7 +797,15 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
       if (diasNaoCobertos.length === 0) {
         semanasCompletas.push(monKey);
       } else {
-        semanasIncompletas.push({ weekOf: monKey, gaps: diasNaoCobertos.map(d2 => dayNames[d2.dow]), dias: diasPedido });
+        // Se os ÚNICOS dias que faltam são dias que não trabalha → ela quer tirar a semana
+        // mas não incluiu os dias de folga. Pedir para expandir para 2ª-6ª.
+        const todosGapsSaoFolga = diasNaoCobertos.every(d2 => !trabalhaDia(hor, d2.dow));
+        if (todosGapsSaoFolga) {
+          // Marcar como "precisa expandir" (não é semana incompleta genuína)
+          semanasCompletas.push(monKey); // conta como completa para efeitos de contagem
+        } else {
+          semanasIncompletas.push({ weekOf: monKey, gaps: diasNaoCobertos.map(d2 => dayNames[d2.dow]), dias: diasPedido });
+        }
       }
     });
     
@@ -799,6 +814,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     const diasEmSemanasIncompletas = semanasIncompletas.reduce((sum, si) => sum + si.dias.length, 0);
     
     // Se há semanas completas: verificar se selecionou 2ª a 6ª nessas semanas
+    // (inclui semanas onde a terapeuta cobriu todos os dias de trabalho mas falta incluir dias de folga)
     let devExpandir = false;
     const semsParaCorrigir = [];
     semanasCompletas.forEach(monKey => {
@@ -807,8 +823,9 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
         wd.setDate(wd.getDate() + i);
         const wds = toLocalISO(wd);
         const dow = wd.getDay();
-        // Dia já coberto se: fecho, feriado, ou não trabalha → não precisa estar no pedido
-        if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun) && trabalhaDia(hor, dow)) {
+        // Dia já coberto se: fecho ou feriado → não precisa estar no pedido
+        // Dias que não trabalha TÊM de estar no pedido (férias contam em dias úteis de calendário)
+        if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun)) {
           if (!pedidoDias.find(dd => dd.date === wds)) {
             devExpandir = true;
             if (!semsParaCorrigir.find(s => s.weekOf === monKey)) {
@@ -876,7 +893,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
   const submit = async () => {
     if (!fD.inicio || !fD.fim) return;
     if (isFerias && emLetivo && !justLetivo.trim()) { setErrMsg("Pedido em período letivo — indica o motivo da exceção."); return; }
-    if (isFerias && feriasAnalise.devExpandir) { setErrMsg("Seleciona de 2ª a 6ª para cobrir a semana completa."); return; }
+    if (isFerias && feriasAnalise.devExpandir) { setErrMsg("Inclui todos os dias úteis (2ª a 6ª). As férias contam em dias de calendário."); return; }
     if (isFerias && feriasAnalise.naoConsecutivos) { setErrMsg("Os dias isolados têm de ser seguidos. Seleciona um intervalo contínuo."); return; }
     if (isFerias && feriasAnalise.isolado) { setErrMsg("Já não tens dias isolados. Marca em semanas completas (2ª a 6ª)."); return; }
     
@@ -1057,9 +1074,9 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
             )}
             {isFerias && feriasAnalise.devExpandir && (
               <div style={{ background: C.redBg, padding: "12px 14px", borderRadius: 14, fontSize: 13, fontWeight: 600, marginBottom: 16, border: "1px solid #f5c6c0" }}>
-                <div style={{ color: C.red }}>📅 Seleciona a semana completa</div>
+                <div style={{ color: C.red }}>📅 Inclui a semana completa (2ª a 6ª)</div>
                 <div style={{ fontSize: 12, fontWeight: 500, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
-                  Estás a cobrir todos os teus dias de trabalho nesta semana. Como descansas uma semana inteira, seleciona de <strong>2ª a 6ª</strong>.
+                  As férias contam em <strong>dias úteis de calendário</strong>, mesmo nos dias em que não trabalhas. Seleciona de <strong>segunda a sexta</strong>.
                 </div>
                 {feriasAnalise.semsParaCorrigir && feriasAnalise.semsParaCorrigir.map((s, i) => (
                   <div key={i} style={{ fontSize: 11, color: C.red, marginTop: 4, fontWeight: 700 }}>
@@ -1090,7 +1107,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
             {errMsg && <div style={{ background: C.redBg, color: C.red, padding: "8px 12px", borderRadius: 10, fontSize: 13, fontWeight: 600, marginBottom: 12 }}>⚠️ {errMsg}</div>}
             {(() => {
               let btnDisabled = sub || (isFerias && feriasAnalise.devExpandir) || (isFerias && feriasAnalise.isolado);
-              let btnLabel = sub ? "A enviar..." : (isFerias && feriasAnalise.devExpandir) ? "Ajusta as datas (2ª a 6ª)" : (isFerias && feriasAnalise.isolado) ? "Marca semana completa" : "Enviar pedido";
+              let btnLabel = sub ? "A enviar..." : (isFerias && feriasAnalise.devExpandir) ? "Inclui 2ª a 6ª" : (isFerias && feriasAnalise.isolado) ? "Marca semana completa" : "Enviar pedido";
               if (isFerias && fD.inicio && fD.fim && !feriasAnalise.devExpandir) {
                 const fechoSetBtn = buildFechoSet(fecho);
                 const diasBtn = contarDiasFerias(fD.inicio, fD.fim, fechoSetBtn, metrics.feriadoMun);
@@ -2465,6 +2482,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     const bgCol = letivo ? "#FFF0F3" : "#F0FFF4";
                     const fecho = fechoDia(dStr);
                     if (fecho) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.gray, background: bgCol }} title={"Fecho: " + fecho.Nome}>🔒</div>;
+                    if (isFeriado(dStr)) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.red, background: bgCol }} title="Feriado nacional">🔴</div>;
                     const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
                     if (tFerMun && dStr === tFerMun) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.blue, background: bgCol }} title="Feriado municipal">🏛️</div>;
                     const tHor = getHorario(data.horarios, t.ID);
@@ -2484,7 +2502,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             </Card>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, padding: "0 4px" }}>
-              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "—", l: "S/horário", c: C.gray }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🏛️", l: "Fer.mun.", c: C.blue }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🎁", l: "F. bónus", c: C.green }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
+              {[{ i: "✓", l: "Trabalha", c: C.green }, { i: "—", l: "S/horário", c: C.gray }, { i: "🔒", l: "Fecho", c: C.gray }, { i: "🔴", l: "Feriado", c: C.red }, { i: "🏛️", l: "Fer.mun.", c: C.blue }, { i: "🌴", l: "Férias", c: C.teal }, { i: "🎁", l: "F. bónus", c: C.green }, { i: "🏥", l: "Baixa", c: C.purple }, { i: "📋", l: "Falta", c: C.blue }, { i: "⚠️", l: "F.Inj.", c: C.red }, { i: "🎓", l: "Form.", c: C.orange }].map((x, i) => (
                 <span key={i} style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}>{x.i} {x.l}</span>
               ))}
             </div>
@@ -2525,6 +2543,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       }
                       row.push("FECHO"); return;
                     }
+                    if (isFeriado(dStr)) { row.push("FERIADO"); return; }
                     const tHor = getHorario(data.horarios, t.ID);
                     const dObj = new Date(dStr + "T12:00:00");
                     if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
@@ -2597,6 +2616,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       const bgCol = letivo ? "#FFF0F3" : "#F0FFF4";
                       const fecho = fechoDia(dStr);
                       if (fecho) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.gray, background: bgCol }}>🔒</div>;
+                      if (isFeriado(dStr)) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.red, background: bgCol }} title="Feriado nacional">🔴</div>;
                       const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
                       if (tFerMun && dStr === tFerMun) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.blue, background: bgCol }} title="Feriado municipal">🏛️</div>;
                       const tHor = getHorario(data.horarios, t.ID);
@@ -2616,7 +2636,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             </Card>
 
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, padding: "0 4px" }}>
-              {[{ i: "✓", l: "Trabalha" }, { i: "—", l: "S/horário" }, { i: "🔒", l: "Fecho" }, { i: "🏛️", l: "Fer.mun." }, { i: "🌴", l: "Férias" }, { i: "🎁", l: "F. bónus" }, { i: "🏥", l: "Baixa" }, { i: "📋", l: "Falta" }, { i: "⚠️", l: "F.Inj." }, { i: "🎓", l: "Form." }].map((x, i) => (
+              {[{ i: "✓", l: "Trabalha" }, { i: "—", l: "S/horário" }, { i: "🔒", l: "Fecho" }, { i: "🔴", l: "Feriado" }, { i: "🏛️", l: "Fer.mun." }, { i: "🌴", l: "Férias" }, { i: "🎁", l: "F. bónus" }, { i: "🏥", l: "Baixa" }, { i: "📋", l: "Falta" }, { i: "⚠️", l: "F.Inj." }, { i: "🎓", l: "Form." }].map((x, i) => (
                 <span key={i} style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}>{x.i} {x.l}</span>
               ))}
             </div>
@@ -2705,6 +2725,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       }
                       row.push("FECHO"); return;
                     }
+                    if (isFeriado(dStr)) { row.push("FERIADO"); return; }
                     const tHor = getHorario(data.horarios, t.ID);
                     const dObj = new Date(dStr + "T12:00:00");
                     if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
