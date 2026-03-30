@@ -122,7 +122,7 @@ function buildFechoSet(fecho) {
 // Contar dias de férias reais: sem fds, feriados NEM fecho
 function contarDiasFerias(i, f, fechoSet, feriadoMun) {
   if (!i || !f) return 0;
-  let c = 0; const d = new Date(i), e = new Date(f);
+  let c = 0; const d = new Date(i + "T12:00:00"), e = new Date(f + "T12:00:00");
   while (d <= e) {
     if (d.getDay() % 6 !== 0) {
       const ds = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
@@ -180,7 +180,7 @@ function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbac
 /* ═══════════════════════ CÁLCULOS ═══════════════════════ */
 function contarDiasUteis(i, f, feriadoMun) {
   if (!i || !f) return 0;
-  let c = 0; const d = new Date(i), e = new Date(f);
+  let c = 0; const d = new Date(i + "T12:00:00"), e = new Date(f + "T12:00:00");
   while (d <= e) { 
     if (d.getDay() % 6 !== 0) {
       const ds = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -244,7 +244,7 @@ function trabalhaDia(hor, dayOfWeek) {
 function contarDiasTrabFecho(fecho, hor) {
   let count = 0;
   for (const f of fecho) {
-    const d = new Date(f["Data Início"]), fim = new Date(f["Data Fim"]);
+    const d = new Date(f["Data Início"] + "T12:00:00"), fim = new Date(f["Data Fim"] + "T12:00:00");
     while (d <= fim) { if (trabalhaDia(hor, d.getDay())) count++; d.setDate(d.getDate() + 1); }
   }
   return count;
@@ -253,10 +253,10 @@ function contarDiasTrabAus(ausList, hor) {
   let count = 0;
   for (const a of ausList) {
     if (Number(a["Dias Úteis"] || 0) === 0.5) {
-      const d = new Date(a["Data Início"]);
+      const d = new Date(a["Data Início"] + "T12:00:00");
       if (trabalhaDia(hor, d.getDay())) count += 0.5;
     } else {
-      const d = new Date(a["Data Início"]), fim = new Date(a["Data Fim"]);
+      const d = new Date(a["Data Início"] + "T12:00:00"), fim = new Date(a["Data Fim"] + "T12:00:00");
       while (d <= fim) { if (d.getDay() >= 1 && d.getDay() <= 5 && trabalhaDia(hor, d.getDay())) count++; d.setDate(d.getDate() + 1); }
     }
   }
@@ -708,9 +708,9 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
   // Detetar se datas caem em período letivo
   const emLetivo = (() => {
     if (!fD.inicio || !fD.fim || !periodos) return null;
-    const ini = new Date(fD.inicio), fim = new Date(fD.fim);
+    const ini = new Date(fD.inicio + "T12:00:00"), fim = new Date(fD.fim + "T12:00:00");
     for (const p of periodos) {
-      const pI = new Date(p["Início"]), pF = new Date(p.Fim);
+      const pI = new Date(p["Início"] + "T12:00:00"), pF = new Date(p.Fim + "T12:00:00");
       if (ini <= pF && fim >= pI) return p["Período"];
     }
     return null;
