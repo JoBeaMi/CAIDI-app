@@ -193,8 +193,8 @@ function contarDiasUteis(i, f, feriadoMun) {
 
 /* ─── QUADRIMESTRES ───
    Q1: 1 Set → 31 Dez  (contém 1.º Período letivo)
-   Q2: 1 Jan → 13 Abr  (contém 2.º Período letivo)
-   Q3: 14 Abr → 31 Ago (contém 3.º Período letivo)
+   Q2: 1 Jan → 12 Abr  (contém 2.º Período letivo)
+   Q3: 13 Abr → 31 Ago (contém 3.º Período letivo)
    OBJETIVO = dias úteis do período LETIVO × horas letivas/dia
    Tempo para cumprir = quadrimestre inteiro */
 function buildQuadrimestres(periodos) {
@@ -209,10 +209,10 @@ function buildQuadrimestres(periodos) {
       label = "1.º Quadrimestre"; meses = "Set–Dez";
     } else if (i === 1) {
       const qY = y0 >= 2026 ? y0 : y0 + 1;
-      qInicio = qY + "-01-01"; qFim = qY + "-04-13";
+      qInicio = qY + "-01-01"; qFim = qY + "-04-12";
       label = "2.º Quadrimestre"; meses = "Jan–Abr";
     } else {
-      qInicio = yFim + "-04-14"; qFim = yFim + "-08-31";
+      qInicio = yFim + "-04-13"; qFim = yFim + "-08-31";
       label = "3.º Quadrimestre"; meses = "Abr–Ago";
     }
     return { label, meses, periodo: p["Período"], letivoInicio: p["Início"], letivoFim: p.Fim, qInicio, qFim };
