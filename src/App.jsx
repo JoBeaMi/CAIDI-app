@@ -98,6 +98,13 @@ function normFeriadoMun(val) {
   return s;
 }
 
+// ── Conversão segura de Date para "YYYY-MM-DD" em hora LOCAL ──
+// NUNCA usar .toISOString().slice(0,10) — converte para UTC e no
+// horário de verão português (UTC+1) meia-noite local = dia anterior em UTC!
+function toLocalISO(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
 // Construir set de dias de fecho a partir da lista
 function buildFechoSet(fecho) {
   const set = new Set();
@@ -213,7 +220,7 @@ function buildQuadrimestres(periodos) {
 }
 
 function quadAtual(quads) {
-  const hStr = new Date().toISOString().slice(0, 10);
+  const hStr = toLocalISO(new Date());
   for (const q of quads) { if (hStr >= q.qInicio && hStr <= q.qFim) return q; }
   const future = quads.filter(q => q.qInicio > hStr);
   if (future.length) return future[0];
@@ -260,7 +267,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const quads = buildQuadrimestres(periodos);
   const q = quadAtual(quads);
   if (!q) return emptyMetrics();
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = toLocalISO(new Date());
   const hor = getHorario(horarios, t.ID);
   const feriadoMun = normFeriadoMun(t["Feriado Municipal"]);
 
@@ -354,7 +361,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
         const dt = new Date(pd.date + "T12:00:00");
         const mon = new Date(dt);
         mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1));
-        const key = mon.toISOString().slice(0,10);
+        const key = toLocalISO(mon);
         if (!semCheck[key]) semCheck[key] = new Set();
         semCheck[key].add(pd.date);
       });
@@ -366,7 +373,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
         for (let i = 0; i < 5; i++) {
           const wd = new Date(monKey + "T12:00:00");
           wd.setDate(wd.getDate() + i);
-          const wds = wd.toISOString().slice(0,10);
+          const wds = toLocalISO(wd);
           const dow = wd.getDay();
           const coberto = fechoSet.has(wds) || isFeriadoTerap(wds, feriadoMun) || !trabalhaDia(hor, dow) || diasPedSet.has(wds);
           if (!coberto) { completa = false; break; }
@@ -379,7 +386,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
         const dt = new Date(pd.date + "T12:00:00");
         const mon = new Date(dt);
         mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1));
-        const key = mon.toISOString().slice(0,10);
+        const key = toLocalISO(mon);
         if (semanasCompletas.has(key)) {
           diasObrigSet.add(pd.date);
         } else {
@@ -420,7 +427,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const bR = Math.max(dBn - bU, 0);
 
   const dExtraTotal = Math.max(dQuadTotal - dLetivoTotal, 0);
-  const passado = new Date().toISOString().slice(0,10) > q.qFim;
+  const passado = toLocalISO(new Date()) > q.qFim;
   const fE2 = Math.max(mE2 - ef, 0);
   const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
   const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
@@ -732,7 +739,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
     const d = new Date(fD.inicio + "T12:00:00"), fim = new Date(fD.fim + "T12:00:00");
     while (d <= fim) {
       if (d.getDay() >= 1 && d.getDay() <= 5) {
-        const ds = d.toISOString().slice(0,10);
+        const ds = toLocalISO(d);
         if (!fechoS.has(ds) && !isFeriadoTerap(ds, metrics.feriadoMun)) {
           pedidoDias.push({ date: ds, dow: d.getDay() });
         }
@@ -754,7 +761,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
       const dt = new Date(pd.date + "T12:00:00");
       const mon = new Date(dt);
       mon.setDate(mon.getDate() - (mon.getDay() === 0 ? 6 : mon.getDay() - 1));
-      const key = mon.toISOString().slice(0,10);
+      const key = toLocalISO(mon);
       if (!semanas[key]) semanas[key] = [];
       semanas[key].push(pd);
     });
@@ -772,7 +779,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
       for (let i = 0; i < 5; i++) {
         const wd = new Date(monKey + "T12:00:00");
         wd.setDate(wd.getDate() + i);
-        const wds = wd.toISOString().slice(0,10);
+        const wds = toLocalISO(wd);
         const dow = wd.getDay();
         const coberto = fechoS.has(wds) || isFeriadoTerap(wds, metrics.feriadoMun) || !trabalhaDia(hor, dow) || diasPedidoSet.has(wds);
         if (!coberto) {
@@ -798,7 +805,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
       for (let i = 0; i < 5; i++) {
         const wd = new Date(monKey + "T12:00:00");
         wd.setDate(wd.getDate() + i);
-        const wds = wd.toISOString().slice(0,10);
+        const wds = toLocalISO(wd);
         const dow = wd.getDay();
         // Dia já coberto se: fecho, feriado, ou não trabalha → não precisa estar no pedido
         if (!fechoS.has(wds) && !isFeriadoTerap(wds, metrics.feriadoMun) && trabalhaDia(hor, dow)) {
@@ -807,7 +814,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
             if (!semsParaCorrigir.find(s => s.weekOf === monKey)) {
               const mon = new Date(monKey + "T12:00:00");
               const fri = new Date(mon); fri.setDate(fri.getDate() + 4);
-              semsParaCorrigir.push({ weekOf: monKey, de: mon.toISOString().slice(0,10), ate: fri.toISOString().slice(0,10) });
+              semsParaCorrigir.push({ weekOf: monKey, de: toLocalISO(mon), ate: toLocalISO(fri) });
             }
           }
         }
@@ -838,7 +845,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
         const dB = new Date(diasIsoladosSorted[i + 1].date + "T12:00:00");
         const cur = new Date(dA); cur.setDate(cur.getDate() + 1);
         while (cur < dB) {
-          const cds = cur.toISOString().slice(0, 10);
+          const cds = toLocalISO(cur);
           const dow = cur.getDay();
           if (dow >= 1 && dow <= 5 && !fechoS.has(cds) && !isFeriadoTerap(cds, metrics.feriadoMun) && trabalhaDia(hor, dow)) {
             saoConsecutivos = false;
@@ -911,7 +918,7 @@ function AbsenceForm({ type, terap, metrics, periodos, fecho, onSubmit, onClose 
         : isFerias && feriasAnalise.isolado ? " [⚠️ DIAS ISOLADOS SEM BÓNUS]" : "";
       const resp = await apiPost({ action: "novoPedido", terapId: terap.ID, nome: terap.Nome, dataInicio: fD.inicio, dataFim: fD.fim, motivo: mot, nota: notaFinal + notaIsolado, periodo: mesmoDia ? periodo : "dia", ficheiro: ficheiroData });
       const linkReal = (resp && resp.ficheiro && resp.ficheiro.indexOf("http") === 0) ? resp.ficheiro : "";
-      onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": new Date().toISOString().slice(0,10), Ficheiro: linkReal });
+      onSubmit({ ID_Terapeuta: terap.ID, Nome: terap.Nome, "Data Início": fD.inicio, "Data Fim": fD.fim, Motivo: mot, "Dias Úteis": dias, Período: mesmoDia ? periodo : "dia", Estado: "Pendente", Observações: notaFinal, "Data Pedido": toLocalISO(new Date()), Ficheiro: linkReal });
       setDone(true); setTimeout(onClose, 1800);
     } catch (err) { setErrMsg("Erro: " + err.message); }
     setSub(false);
@@ -1306,7 +1313,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
   // Métricas para um quadrimestre específico (para navegação)
   const calcQuad = (qx) => {
     if (!qx) return m;
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = toLocalISO(new Date());
     const fallbackHL = Number(terap["Horas Letivas"]) || 0;
     const fallbackHS = Number(terap["Horas Semanais"]) || 40;
     const altList = getAlteracoesTerap(data.alteracoes, terap.ID);
@@ -1477,7 +1484,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
             {isADM && (() => {
               const hSemanais = Number(terap["Horas Semanais"]) || 0;
               const diasFerias = Number(terap["Dias Férias"]) || 22;
-              const hojeStr = new Date().toISOString().slice(0, 10);
+              const hojeStr = toLocalISO(new Date());
               
               // Próximo fecho CAIDI
               const proximoFecho = data.fecho.filter(f => f["Data Fim"] >= hojeStr).sort((a, b) => (a["Data Início"] || "").localeCompare(b["Data Início"] || ""))[0];
@@ -2204,7 +2211,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
           <div>
             <h2 style={{ fontSize: 17, fontWeight: 900, color: C.dark, margin: "0 0 12px" }}>Todos os pedidos</h2>
             {todosPedidos.length === 0 ? <Card><div style={{ textAlign: "center", padding: 20, color: C.gray }}><div style={{ fontSize: 36 }}>📋</div><div style={{ fontSize: 14, marginTop: 6 }}>Sem pedidos</div></div></Card>
-            : todosPedidos.map((p, i) => { const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; const hojeStr = new Date().toISOString().slice(0, 10); const passado = p["Data Início"] <= hojeStr; const canEdit = !passado && p.Estado === "Pendente"; const canCancel = !passado && (p.Estado === "Pendente" || p.Estado === "Aprovado"); return (
+            : todosPedidos.map((p, i) => { const mi = motivoInfo(p.Motivo); const e = EST[p.Estado] || EST.Pendente; const hojeStr = toLocalISO(new Date()); const passado = p["Data Início"] <= hojeStr; const canEdit = !passado && p.Estado === "Pendente"; const canCancel = !passado && (p.Estado === "Pendente" || p.Estado === "Aprovado"); return (
               <Card key={i} delay={i * 0.03} style={{ marginBottom: 8, borderLeft: "4px solid " + mi.color, borderRadius: "4px 20px 20px 4px", opacity: p.Estado === "Cancelado" ? 0.5 : 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div><div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>{fmtD(p["Data Início"])}{p["Data Início"] !== p["Data Fim"] ? " → " + fmtD(p["Data Fim"]) : ""}</div><div style={{ fontSize: 11, color: C.darkSoft, marginTop: 2 }}>{mi.icon} {mi.short} · {fmtDias(p["Dias Úteis"], p["Período"])}</div></div>
@@ -2353,7 +2360,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
   const hoje = new Date();
   const seg = new Date(hoje); seg.setDate(hoje.getDate() - ((hoje.getDay() + 6) % 7) + semanaOffset * 7);
   const semDias = Array.from({ length: 5 }, (_, i) => { const d = new Date(seg); d.setDate(seg.getDate() + i); return d; });
-  const semStr = semDias.map(d => d.toISOString().slice(0, 10));
+  const semStr = semDias.map(d => toLocalISO(d));
   const semLabel = fmtD(semStr[0]) + " → " + fmtD(semStr[4]);
   const nomeDia = ["Seg", "Ter", "Qua", "Qui", "Sex"];
 
@@ -2386,7 +2393,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
     const dow = dt.getDay();
     if (dow !== 0 && dow !== 6) diasMes.push(dt);
   }
-  const diasMesStr = diasMes.map(d => d.toISOString().slice(0, 10));
+  const diasMesStr = diasMes.map(d => toLocalISO(d));
 
   const adminTabs = [
     { id: "semana", icon: "📅", l: "Semana" },
@@ -2424,7 +2431,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             </div>
 
             {(() => {
-              const hojeStr = hoje.toISOString().slice(0, 10);
+              const hojeStr = toLocalISO(hoje);
               const ausHoje = data.terapeutas.filter(t => terapAusenteDia(t.ID, hojeStr) || fechoDia(hojeStr));
               const hojeDow = hoje.getDay();
               const terapHoje = data.terapeutas.filter(t => { const h = getHorario(data.horarios, t.ID); return trabalhaDia(h, hojeDow); });
@@ -2444,8 +2451,8 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               <div style={{ display: "grid", gridTemplateColumns: "1fr " + "40px ".repeat(5), background: C.grayBg, borderBottom: "1px solid " + C.grayLight }}>
                 <div style={{ padding: "8px 10px", fontSize: 11, fontWeight: 800, color: C.darkSoft }}>Terapeuta</div>
                 {semDias.map((d, i) => {
-                  const isHoje = d.toISOString().slice(0, 10) === hoje.toISOString().slice(0, 10);
-                  const dStr = d.toISOString().slice(0, 10);
+                  const isHoje = toLocalISO(d) === toLocalISO(hoje);
+                  const dStr = toLocalISO(d);
                   const letivo = isLetivo(dStr);
                   return <div key={i} style={{ padding: "8px 2px", fontSize: 10, fontWeight: 800, color: isHoje ? C.teal : C.gray, textAlign: "center", background: letivo ? "#FFF0F3" : "#F0FFF4" }}>{nomeDia[i]}<br/><span style={{ fontSize: 12, fontWeight: 900 }}>{d.getDate()}</span></div>;
                 })}
@@ -2461,7 +2468,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
                     if (tFerMun && dStr === tFerMun) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: C.blue, background: bgCol }} title="Feriado municipal">🏛️</div>;
                     const tHor = getHorario(data.horarios, t.ID);
-                    const dObj = new Date(dStr);
+                    const dObj = new Date(dStr + "T12:00:00");
                     if (tHor && !trabalhaDia(tHor, dObj.getDay())) return <div key={di} style={{ display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: C.grayLight, fontWeight: 700, background: bgCol }} title="Sem horário">—</div>;
                     const aus = terapAusenteDia(t.ID, dStr);
                     if (aus) {
@@ -2486,6 +2493,71 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#F0FFF4", border: "1px solid #b2f5ea", verticalAlign: "middle", marginRight: 3 }} /> Não letivo</span>
               <span style={{ fontSize: 10, color: C.gray, fontWeight: 600, fontStyle: "italic" }}>· semi-transparente = pendente</span>
             </div>
+
+            {/* ── Exportar semana ── */}
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+              {[
+                { label: "🌴 Exportar semana · férias", filename: "Semana_Ferias", filtro: "ferias" },
+                { label: "📋 Exportar semana · ausências", filename: "Semana_Ausencias", filtro: "todas" },
+              ].map((exp, ei) => (
+              <Btn key={ei} onClick={async () => {
+                if (!window.XLSX) {
+                  const script = document.createElement("script");
+                  script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+                  document.head.appendChild(script);
+                  await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+                }
+                const XLSX = window.XLSX;
+                const soFerias = exp.filtro === "ferias";
+                const header = ["Terapeuta", ...semDias.map((d, i) => nomeDia[i] + " " + d.getDate() + "/" + (d.getMonth() + 1)), "Total"];
+                const rows = [header];
+                data.terapeutas.forEach(t => {
+                  const row = [t.Nome];
+                  let totalDias = 0;
+                  semStr.forEach(dStr => {
+                    const fecho = fechoDia(dStr);
+                    if (fecho) {
+                      if (soFerias) {
+                        const tHor = getHorario(data.horarios, t.ID);
+                        const dObj = new Date(dStr + "T12:00:00");
+                        if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
+                        row.push("FECHO"); totalDias++; return;
+                      }
+                      row.push("FECHO"); return;
+                    }
+                    const tHor = getHorario(data.horarios, t.ID);
+                    const dObj = new Date(dStr + "T12:00:00");
+                    if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
+                    const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
+                    if (tFerMun && dStr === tFerMun) { row.push("FER.MUN."); return; }
+                    const aus = terapAusenteDia(t.ID, dStr);
+                    if (aus) {
+                      const isFerias = aus.Motivo.includes("Férias");
+                      const isBaixaFalta = !isFerias;
+                      if (soFerias && isBaixaFalta) { row.push(""); return; }
+                      totalDias++;
+                      if (aus.Motivo === "Férias (Bónus)") row.push("BÓNUS");
+                      else if (isFerias) row.push("FÉRIAS");
+                      else if (aus.Motivo === "Baixa Médica") row.push("BAIXA");
+                      else if (aus.Motivo === "Falta Justificada") row.push("F.JUST");
+                      else if (aus.Motivo === "Falta Injustificada") row.push("F.INJ");
+                      else if (aus.Motivo === "Formação") row.push("FORM");
+                      else row.push(aus.Motivo);
+                      return;
+                    }
+                    row.push("");
+                  });
+                  row.push(totalDias);
+                  rows.push(row);
+                });
+                const ws = XLSX.utils.aoa_to_sheet(rows);
+                ws["!cols"] = [{ wch: 25 }, ...semDias.map(() => ({ wch: 12 })), { wch: 6 }];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Semana");
+                XLSX.writeFile(wb, exp.filename + "_" + semStr[0] + ".xlsx");
+              }} variant="secondary" style={{ fontSize: 12 }}>{exp.label}</Btn>
+              ))}
+            </div>
           </div>
         )}
 
@@ -2509,7 +2581,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                   {diasMes.map((d, i) => {
                     const dStr = diasMesStr[i];
                     const letivo = isLetivo(dStr);
-                    const isHoje = dStr === hoje.toISOString().slice(0, 10);
+                    const isHoje = dStr === toLocalISO(hoje);
                     return <div key={i} style={{ minWidth: 28, maxWidth: 28, padding: "4px 0", fontSize: 9, fontWeight: 700, color: isHoje ? C.teal : C.gray, textAlign: "center", background: letivo ? "#FFF0F3" : "#F0FFF4", borderBottom: isHoje ? "2px solid " + C.teal : "none" }}>
                       <div>{nomeDia[(d.getDay() + 6) % 7]?.charAt(0)}</div>
                       <div style={{ fontSize: 10, fontWeight: 900 }}>{d.getDate()}</div>
@@ -2528,7 +2600,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
                       if (tFerMun && dStr === tFerMun) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: C.blue, background: bgCol }} title="Feriado municipal">🏛️</div>;
                       const tHor = getHorario(data.horarios, t.ID);
-                      const dObj = new Date(dStr);
+                      const dObj = new Date(dStr + "T12:00:00");
                       if (tHor && !trabalhaDia(tHor, dObj.getDay())) return <div key={di} style={{ minWidth: 28, maxWidth: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: C.grayLight, background: bgCol }}>—</div>;
                       const aus = terapAusenteDia(t.ID, dStr);
                       if (aus) {
@@ -2552,6 +2624,51 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#FFF0F3", border: "1px solid #f5c6c0", verticalAlign: "middle", marginRight: 3 }} /> Letivo</span>
               <span style={{ fontSize: 10, color: C.darkSoft, fontWeight: 600 }}><span style={{ display: "inline-block", width: 12, height: 12, borderRadius: 3, background: "#F0FFF4", border: "1px solid #b2f5ea", verticalAlign: "middle", marginRight: 3 }} /> Não letivo</span>
             </div>
+
+            {/* ── Resumo férias por terapeuta ── */}
+            {(() => {
+              const resumoFerias = data.terapeutas
+                .filter(t => t["Área"] !== "ADM")
+                .map(t => {
+                  const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
+                  const ap2 = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
+                  const m2 = calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
+                  const totalDisp = (Number(t["Dias Férias"]) || 22) + m2.dBn;
+                  const totalUsados = m2.fU + m2.bU;
+                  const restam = m2.oR + m2.bR;
+                  return { nome: t.Nome, restam, totalDisp, totalUsados, oR: m2.oR, bR: m2.bR, diasTrab: m2.diasTrab };
+                })
+                .sort((a, b) => b.restam - a.restam);
+              const todosOk = resumoFerias.every(r => r.restam === 0);
+              const comFalta = resumoFerias.filter(r => r.restam > 0);
+              return (
+                <Card delay={0.1} style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: C.dark }}>🌴 Férias por marcar</div>
+                    {todosOk
+                      ? <span style={{ fontSize: 11, fontWeight: 700, color: C.green, background: C.greenBg, padding: "3px 10px", borderRadius: 8 }}>✅ Todas marcadas</span>
+                      : <span style={{ fontSize: 11, fontWeight: 700, color: C.red, background: C.redBg, padding: "3px 10px", borderRadius: 8 }}>{comFalta.length} por marcar</span>
+                    }
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {resumoFerias.map((r, i) => (
+                      <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 8, background: r.restam === 0 ? C.greenBg : r.restam <= 5 ? C.yellowBg : C.redBg }}>
+                        <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: C.dark, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                          {r.nome.split(" ")[0]} {(r.nome.split(" ").pop() || "").charAt(0)}.
+                          {r.diasTrab < 5 && <span style={{ fontSize: 9, color: C.darkSoft, marginLeft: 4 }}>({r.diasTrab}d/sem)</span>}
+                        </div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: r.restam === 0 ? C.green : r.restam <= 5 ? "#E17055" : C.red, minWidth: 60, textAlign: "right" }}>
+                          {r.restam === 0 ? "✅ OK" : "faltam " + r.restam + "d"}
+                        </div>
+                        <div style={{ fontSize: 10, color: C.gray, minWidth: 55, textAlign: "right" }}>
+                          {r.totalUsados}/{r.totalDisp}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              );
+            })()}
 
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
               {[
@@ -2582,14 +2699,14 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                       if (soFerias) {
                         // Fecho conta como férias
                         const tHor = getHorario(data.horarios, t.ID);
-                        const dObj = new Date(dStr);
+                        const dObj = new Date(dStr + "T12:00:00");
                         if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
                         row.push("FECHO"); totalDias++; return;
                       }
                       row.push("FECHO"); return;
                     }
                     const tHor = getHorario(data.horarios, t.ID);
-                    const dObj = new Date(dStr);
+                    const dObj = new Date(dStr + "T12:00:00");
                     if (tHor && !trabalhaDia(tHor, dObj.getDay())) { row.push("—"); return; }
                     const tFerMun = normFeriadoMun(t["Feriado Municipal"]);
                     if (tFerMun && dStr === tFerMun) { row.push("FER.MUN."); return; }
@@ -2628,7 +2745,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
         {/* ═══ TAB EQUIPA ═══ */}
         {adminTab === "equipa" && (() => {
           const allQuads = buildQuadrimestres(data.periodos);
-          const hojeStr = new Date().toISOString().slice(0, 10);
+          const hojeStr = toLocalISO(new Date());
           const curIdx = allQuads.findIndex(q => hojeStr >= q.qInicio && hojeStr <= q.qFim);
           const currentIdx = curIdx >= 0 ? curIdx : allQuads.length - 1;
           const vIdx = adminQuadIdx !== null ? adminQuadIdx : currentIdx;
