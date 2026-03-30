@@ -306,7 +306,7 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   // ── Férias: 22 dias úteis para todas (lei) ──
   const diasTrab = hor ? hor.diasTrab : 5;
   const fechoSet = buildFechoSet(fecho);
-  // Fecho CAIDI: conta em dias úteis do calendário para todas (igual)
+  // Fecho CAIDI: conta em dias úteis do calendário (excl. feriados — feriados não são férias)
   const tF = (() => {
     let count = 0;
     fecho.forEach(f => {
@@ -1646,30 +1646,6 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                 return yy + "-" + mm + "-" + dd;
               };
               
-              // Férias aprovadas
-              todasFerias.forEach(f => {
-                const d = new Date(f["Data Início"] + "T12:00:00");
-                const fim = new Date(f["Data Fim"] + "T12:00:00");
-                while (d <= fim) {
-                  if (d.getDay() !== 0 && d.getDay() !== 6) {
-                    diasFerias.add(fmtYMD(d));
-                  }
-                  d.setDate(d.getDate() + 1);
-                }
-              });
-              
-              // Férias pendentes
-              feriasPendentes.forEach(f => {
-                const d = new Date(f["Data Início"] + "T12:00:00");
-                const fim = new Date(f["Data Fim"] + "T12:00:00");
-                while (d <= fim) {
-                  if (d.getDay() !== 0 && d.getDay() !== 6) {
-                    diasPendentes.add(fmtYMD(d));
-                  }
-                  d.setDate(d.getDate() + 1);
-                }
-              });
-              
               // Fecho CAIDI
               fechoCAIDI.forEach(f => {
                 const d = new Date(f["Data Início"] + "T12:00:00");
@@ -1677,6 +1653,36 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                 while (d <= fim) {
                   if (d.getDay() !== 0 && d.getDay() !== 6) {
                     diasFecho.add(fmtYMD(d));
+                  }
+                  d.setDate(d.getDate() + 1);
+                }
+              });
+              
+              // Férias aprovadas (excluir fecho e feriados — aparecem com cor própria no calendário)
+              todasFerias.forEach(f => {
+                const d = new Date(f["Data Início"] + "T12:00:00");
+                const fim = new Date(f["Data Fim"] + "T12:00:00");
+                while (d <= fim) {
+                  if (d.getDay() !== 0 && d.getDay() !== 6) {
+                    const ds = fmtYMD(d);
+                    if (!diasFecho.has(ds) && !FERIADOS_NACIONAIS.has(ds) && !(m.feriadoMun && ds === m.feriadoMun)) {
+                      diasFerias.add(ds);
+                    }
+                  }
+                  d.setDate(d.getDate() + 1);
+                }
+              });
+              
+              // Férias pendentes (mesma lógica)
+              feriasPendentes.forEach(f => {
+                const d = new Date(f["Data Início"] + "T12:00:00");
+                const fim = new Date(f["Data Fim"] + "T12:00:00");
+                while (d <= fim) {
+                  if (d.getDay() !== 0 && d.getDay() !== 6) {
+                    const ds = fmtYMD(d);
+                    if (!diasFecho.has(ds) && !FERIADOS_NACIONAIS.has(ds) && !(m.feriadoMun && ds === m.feriadoMun)) {
+                      diasPendentes.add(ds);
+                    }
                   }
                   d.setDate(d.getDate() + 1);
                 }
