@@ -273,7 +273,12 @@ function objetivoQuad(t, qx, aus, altList, feriadoMun) {
    ao atual — estiver em pelo menos 95%.
    Motivo: sem isto, quem ficou muito abaixo no início do ano recebia à mesma
    por um bom quadrimestre final, porque cada trimestre recomeçava do zero. */
-const PORTA_ANUAL = 0.95;
+// ⚠️ REGRA NOVA, AINDA NÃO COMUNICADA ÀS TÉCNICAS.
+// Fica DESLIGADA (0) para o ano letivo 2025/26, que fecha com as regras que
+// estavam em vigor mais as correções de erro.
+// Para a ativar em 2026/27 — depois de constar do comunicado e do regulamento —
+// basta mudar para 0.95.
+const PORTA_ANUAL = 0;
 
 function acumuladoAno(t, quads, qx, aus, altList, feriadoMun, efPorQuad, efAtual) {
   let ap = 0, ob = 0;
@@ -2154,7 +2159,11 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                         
                         // Badges
                         const badges = [];
-                        if (acimaE3) badges.push({ icon: "💎", label: "10€ por apoio", desc: "Patamar máximo!" });
+                        // [FIX 15] Não prometer dinheiro quando o prémio está bloqueado.
+                        // Antes: mostrava "5€ por apoio · Cada apoio extra = 5€" e depois
+                        // não aparecia valor nenhum, sem qualquer explicação.
+                        if (mq.semPremio) badges.push({ icon: "🚫", label: "Sem prémio este quadrimestre", desc: mq.motivoBloqueio || "" });
+                        else if (acimaE3) badges.push({ icon: "💎", label: "10€ por apoio", desc: "Patamar máximo!" });
                         else if (acimaE2) badges.push({ icon: "💰", label: "5€ por apoio", desc: "Cada apoio extra = 5€" });
                         if (acimaObjetivo && mq.ef >= mq.mBonus) badges.push({ icon: "🌴", label: "Dia Extra garantido", desc: "+1 dia de férias" });
                         if (aph >= 1.2) badges.push({ icon: "⚡", label: "Alta eficiência", desc: aph + " apoios/hora direta" });
@@ -2219,7 +2228,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                                 {acimaE3 ? "💎" : acimaE2 ? "⭐" : "✅"} {nome}, {acimaE3 ? "estás a dar o exemplo!" : acimaE2 ? "estás acima do objetivo!" : "estás a cumprir!"} 
                               </div>
                               <div style={{ fontSize: 13, color: C.dark, marginTop: 6, lineHeight: 1.7 }}>
-                                <strong>{aph} apoios por hora direta</strong> e <strong>{apoiosSemana} por semana</strong> — {pct}% do objetivo. {acimaE3 ? "O teu esforço é notável e faz toda a diferença. A equipa agradece o teu compromisso." : acimaE2 ? "Estás a ir além do esperado e a equipa beneficia disso. Cada apoio extra conta." : "O teu contributo faz diferença e está a ajudar a equipa a cumprir a sua missão. Obrigado pelo teu compromisso. Continua assim."}
+                                <strong>{aph} apoios por hora direta</strong> e <strong>{apoiosSemana} por semana</strong> — {pct}% do objetivo. {acimaE3 ? "O teu esforço é notável e faz toda a diferença. A equipa agradece o teu compromisso." : acimaE2 ? (mq.semPremio ? "Estás a ir além do esperado e a equipa beneficia disso. O prémio, no entanto, não se aplica neste quadrimestre — ver a nota abaixo." : "Estás a ir além do esperado e a equipa beneficia disso. Cada apoio extra conta.") : "O teu contributo faz diferença e está a ajudar a equipa a cumprir a sua missão. Obrigado pelo teu compromisso. Continua assim."}
                               </div>
                               {mq.eurosTotal > 0 && (
                                 <div style={{ marginTop: 8, padding: "6px 10px", background: "rgba(255,255,255,0.7)", borderRadius: 8, display: "inline-block" }}>
@@ -2267,6 +2276,21 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
                   <span style={{ fontSize: e.active ? 16 : 12, fontWeight: 700, color: e.active ? C.green : C.red }}>{e.active ? "✅" : Math.max(e.v - mq.ef, 0) + " faltam"}</span>
                 </div>
               ))}
+              {/* [FIX 15] Quando o prémio está bloqueado, DIZER porquê.
+                  Antes o ecrã marcava os patamares com ✅ e não aparecia valor
+                  nenhum — a pessoa via 112% do objetivo e zero euros, sem
+                  qualquer explicação. */}
+              {mq.semPremio && mq.ef >= mq.mE2 && (
+                <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 10, background: C.grayBg, border: "1px solid " + C.grayLight }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: C.darkSoft }}>🚫 Sem prémio neste quadrimestre</div>
+                  <div style={{ fontSize: 12, color: C.darkSoft, marginTop: 4, lineHeight: 1.5 }}>
+                    {mq.motivoBloqueio}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.gray, marginTop: 6 }}>
+                    Os patamares acima continuam a mostrar o teu desempenho, que está cumprido. Em caso de dúvida, fala com a coordenação.
+                  </div>
+                </div>
+              )}
               {mq.eurosTotal > 0 && (
                 <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 10, background: "linear-gradient(135deg, #FFF9E6, " + C.white + ")", border: "1px solid #FDEBD0", textAlign: "center" }}>
                   <div style={{ fontSize: 11, color: C.gray, fontWeight: 700 }}>💶 Valor acumulado este quadrimestre</div>
