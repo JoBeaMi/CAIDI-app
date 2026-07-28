@@ -31,7 +31,11 @@ async function apiGet(action, params = {}) {
 async function apiPost(data) {
   const res = await fetch(API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(data) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  // [FIX 1] O backend devolve os erros com HTTP 200 e um campo "erro".
+  // Sem esta verificacao a app mostrava "Enviado!" mesmo quando nada era gravado.
+  const out = await res.json();
+  if (out && out.erro) throw new Error(out.erro);
+  return out;
 }
 
 /* ═══════════════════════ FILE UTILS ═══════════════════════ */
@@ -153,8 +157,12 @@ function getHorasNoDia(altList, dia, fallbackHL, fallbackHS) {
   return { hL, hS };
 }
 // Calcular objetivo somando dia a dia (cada dia usa as horas em vigor)
-function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbackHS, feriadoMun) {
+// [FIX 10] hBase: se a folha tiver "Horas Letivas Objetivo", é ESSE o valor usado
+// para construir o objetivo, ignorando reduções de horário que não devem baixar a
+// fasquia. Vazio = comportamento normal.
+function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbackHS, feriadoMun, hBase) {
   if (!inicio || !fim) return { mMin: 0, mE3: 0, hLDMedia: 0, hSMedia: 0 };
+  const base = Number(hBase) || 0;
   let somaHL = 0, somaHS = 0, dias = 0;
   const d = new Date(inicio + "T12:00:00"), e = new Date(fim + "T12:00:00");
   while (d <= e) {
@@ -162,7 +170,7 @@ function calcObjetivoDiario(altList, inicio, fim, diasBaixa, fallbackHL, fallbac
       const ds = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
       if (!isFeriadoTerap(ds, feriadoMun)) {
         const { hL, hS } = getHorasNoDia(altList, ds, fallbackHL, fallbackHS);
-        somaHL += hL / 5;
+        somaHL += (base > 0 ? base : hL) / 5;
         somaHS += hS / 5;
         dias++;
       }
@@ -189,6 +197,105 @@ function contarDiasUteis(i, f, feriadoMun) {
     d.setDate(d.getDate() + 1); 
   }
   return c;
+}
+
+/* ═══════════════════════ [FIX 2] BAIXAS E VIGÊNCIA ═══════════════════════
+   Antes: dB somava os "Dias Úteis" INTEIROS de qualquer ausência que apenas
+   TOCASSE o quadrimestre. Uma baixa de 64 dias a cavalo de dois quadrimestres
+   era contada por inteiro nos dois, o que punha o objetivo a zero e fazia
+   TODOS os apoios caírem no escalão de 10€.
+   Agora conta-se apenas a interseção com o período em causa. */
+
+// Dias úteis de uma ausência que caem MESMO dentro de [ini, fim]
+function diasAusenciaNoPeriodo(a, ini, fim, feriadoMun) {
+  if (!a || !a["Data Início"] || !a["Data Fim"] || !ini || !fim) return 0;
+  const s = a["Data Início"] > ini ? a["Data Início"] : ini;
+  const e = a["Data Fim"] < fim ? a["Data Fim"] : fim;
+  if (s > e) return 0;
+  // preservar as meias-faltas registadas num único dia
+  if (Number(a["Dias Úteis"]) === 0.5 && a["Data Início"] === a["Data Fim"]) return 0.5;
+  return contarDiasUteis(s, e, feriadoMun);
+}
+
+// Soma dos dias de baixa médica aprovada dentro de [ini, fim]
+function diasBaixaNoPeriodo(aus, ini, fim, feriadoMun) {
+  return (aus || [])
+    .filter(a => a.Estado === "Aprovado" && a.Motivo === "Baixa Médica")
+    .reduce((s, a) => s + diasAusenciaNoPeriodo(a, ini, fim, feriadoMun), 0);
+}
+
+/* [FIX 3] VIGÊNCIA DO CONTRATO
+   Se a folha Terapeutas tiver "Data Entrada" e/ou "Data Saída", o objetivo passa
+   a ser calculado só sobre os dias em que a pessoa esteve efetivamente contratada.
+   Sem essas colunas nada muda — o comportamento é exatamente o de hoje. */
+function periodoEfetivo(t, ini, fim) {
+  const ent = t && t["Data Entrada"] ? normFeriadoMun(t["Data Entrada"]) : null;
+  const sai = t && t["Data Saída"]   ? normFeriadoMun(t["Data Saída"])   : null;
+  let i = ini, f = fim;
+  if (ent && ent > i) i = ent;
+  if (sai && sai < f) f = sai;
+  return (i > f) ? null : { ini: i, fim: f };
+}
+// [FIX 11] Suspensão do prémio.
+// O prémio é de CONTINUIDADE e PRODUTIVIDADE, por isso não se atribui:
+//  (a) a quem sai — coluna "Data Saída" (ou já saiu, ou sai dentro do período);
+//  (b) a quem tem horas pagas mas não produtivas (ex.: amamentação) — basta
+//      escrever o motivo na coluna "Sem Bónus" (qualquer texto suspende).
+// Devolve null se há prémio, ou o motivo (string) se não há.
+function motivoSemPremio(t, dataFim) {
+  if (!t) return null;
+  const flag = t["Sem Bónus"] || t["Sem Bonus"];
+  if (flag && String(flag).trim()) return String(flag).trim();
+  const sai = t["Data Saída"] ? normFeriadoMun(t["Data Saída"]) : null;
+  if (sai && sai <= dataFim) return "Saída do CAIDI em " + sai;
+  return null;
+}
+function saiuAte(t, data) { return !!motivoSemPremio(t, data); }
+
+/* [FIX 12] OBJETIVO DE UM QUADRIMESTRE — extraído para poder ser reutilizado
+   tanto no ecrã como no cálculo da porta anual. */
+function objetivoQuad(t, qx, aus, altList, feriadoMun) {
+  if (!t || !qx) return { mMin: 0, mE2: 0, mE3: 0, hLD: 0, hSem: 0, dB: 0, letIni: null, letFim: null };
+  const pe = periodoEfetivo(t, qx.letivoInicio, qx.letivoFim);
+  if (!pe) return { mMin: 0, mE2: 0, mE3: 0, hLD: 0, hSem: 0, dB: 0, letIni: qx.letivoInicio, letFim: qx.letivoFim };
+  const fallbackHL = Number(t["Horas Letivas"]) || 0;
+  const fallbackHS = Number(t["Horas Semanais"]) || 40;
+  const hBase = Number(t["Horas Letivas Objetivo"]) || 0;
+  const dB = diasBaixaNoPeriodo(aus, pe.ini, pe.fim, feriadoMun);
+  const o = calcObjetivoDiario(altList, pe.ini, pe.fim, dB, fallbackHL, fallbackHS, feriadoMun, hBase);
+  return { mMin: o.mMin, mE2: Math.round(o.mMin * 1.05), mE3: o.mE3,
+           hLD: o.hLDMedia, hSem: o.hSMedia, dB, letIni: pe.ini, letFim: pe.fim };
+}
+
+/* [FIX 13] PORTA ANUAL
+   O prémio continua a calcular-se POR QUADRIMESTRE, mas só é atribuído se o
+   ACUMULADO do ano letivo — apoios feitos vs objetivo, do 1.º quadrimestre até
+   ao atual — estiver em pelo menos 95%.
+   Motivo: sem isto, quem ficou muito abaixo no início do ano recebia à mesma
+   por um bom quadrimestre final, porque cada trimestre recomeçava do zero. */
+const PORTA_ANUAL = 0.95;
+
+function acumuladoAno(t, quads, qx, aus, altList, feriadoMun, efPorQuad, efAtual) {
+  let ap = 0, ob = 0;
+  for (const q of (quads || [])) {
+    ob += objetivoQuad(t, q, aus, altList, feriadoMun).mMin;
+    const tem = efPorQuad && Object.prototype.hasOwnProperty.call(efPorQuad, q.label);
+    ap += tem ? (Number(efPorQuad[q.label]) || 0) : (qx && q.label === qx.label ? (efAtual || 0) : 0);
+    if (qx && q.label === qx.label) break;   // até ao quadrimestre em causa, inclusive
+  }
+  const ratio = ob > 0 ? ap / ob : 0;
+  return { apAno: ap, objAno: ob, ratioAno: ratio,
+           pctAno: Math.round(ratio * 100), portaOk: ob > 0 ? ratio >= PORTA_ANUAL : true };
+}
+
+/* [FIX 4] PRÉMIOS — com guarda para objetivo zero.
+   Antes: com mE3 = 0, `ef > mE3` era verdade para qualquer apoio e pagava-se
+   10€ a cada um. Sem objetivo não há escalão para ultrapassar. */
+function calcEuros(ef, mMin, mE2, mE3, semPremio) {
+  if (semPremio || mMin <= 0 || mE3 <= 0) return { euros5: 0, euros10: 0, eurosTotal: 0 };
+  const euros5 = ef > mE2 ? Math.max(Math.min(ef, mE3) - mE2, 0) : 0;
+  const euros10 = ef > mE3 ? ef - mE3 : 0;
+  return { euros5, euros10, eurosTotal: (euros5 * 5) + (euros10 * 10) };
 }
 
 /* ─── QUADRIMESTRES ───
@@ -263,7 +370,7 @@ function contarDiasTrabAus(ausList, hor) {
   return count;
 }
 
-function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensacoes) {
+function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensacoes, resumoT) {
   const quads = buildQuadrimestres(periodos);
   const q = quadAtual(quads);
   if (!q) return emptyMetrics();
@@ -277,7 +384,6 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const dQuadHoje = contarDiasUteis(q.qInicio, hojeStr > q.qFim ? q.qFim : hojeStr, feriadoMun);
 
   const ausQ = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= q.qFim && a["Data Fim"] >= q.qInicio);
-  const dB  = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const dFJ = ausQ.filter(a => a.Motivo === "Falta Justificada").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const dFI = ausQ.filter(a => a.Motivo === "Falta Injustificada").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
   const dFO = ausQ.filter(a => a.Motivo === "Formação").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
@@ -286,7 +392,15 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const altList = getAlteracoesTerap(alteracoes, t.ID);
   const fallbackHL = Number(t["Horas Letivas"]) || 0;
   const fallbackHS = Number(t["Horas Semanais"]) || 40;
-  const obj = calcObjetivoDiario(altList, q.letivoInicio, q.letivoFim, dB, fallbackHL, fallbackHS, feriadoMun);
+  // [FIX 3] período letivo limitado à vigência do contrato (entrada/saída)
+  const pe = periodoEfetivo(t, q.letivoInicio, q.letivoFim);
+  const letIni = pe ? pe.ini : q.letivoInicio;
+  const letFim = pe ? pe.fim : q.letivoFim;
+  // [FIX 2] só os dias de baixa que caem dentro do período letivo efetivo
+  const dB = pe ? diasBaixaNoPeriodo(aus, letIni, letFim, feriadoMun) : 0;
+  const hBase = Number(t["Horas Letivas Objetivo"]) || 0;
+  const obj = pe ? calcObjetivoDiario(altList, letIni, letFim, dB, fallbackHL, fallbackHS, feriadoMun, hBase)
+                 : { mMin: 0, mE3: 0, hLDMedia: 0, hSMedia: 0 };
   const mMin = obj.mMin;
   const hLD = obj.hLDMedia;
   const hSem = obj.hSMedia;
@@ -296,12 +410,18 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const progQuad = dQuadTotal > 0 ? dQuadHoje / dQuadTotal : 1;
   const mH = Math.round(mMin * progQuad);
   const ef = typeof efCount === "number" ? efCount : (Array.isArray(efCount) ? efCount.filter(a => a.Tipo === "Efetivado" && a.Data >= q.qInicio && a.Data <= q.qFim).length : 0);
-  const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
-  const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
-  // Cálculo de € ganhos
-  const euros5 = ef > mE2 ? Math.min(ef, mE3) - mE2 : 0;
-  const euros10 = ef > mE3 ? ef - mE3 : 0;
-  const eurosTotal = (euros5 * 5) + (euros10 * 10);
+  // [FIX 5] sem objetivo definido não se mostra 100% — mostra-se 0 e assinala-se
+  const semObjetivo = !(mMin > 0);
+  const pH = mH > 0 ? Math.round((ef / mH) * 100) : 0;
+  const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : 0;
+  // [FIX 13] porta anual: o acumulado do ano tem de estar >= 95%
+  const acum = acumuladoAno(t, quads, q, aus, altList, feriadoMun,
+                            resumoT && resumoT.efPorQuad, ef);
+  // [FIX 4] € ganhos: guarda para objetivo zero, saída/sem-bónus, e porta anual
+  const motivoBloqueio = motivoSemPremio(t, q.qFim) || (!acum.portaOk
+      ? "Acumulado do ano em " + acum.pctAno + "% (mínimo " + Math.round(PORTA_ANUAL*100) + "%)" : null);
+  const semPremio = !!motivoBloqueio;
+  const { euros5, euros10, eurosTotal } = calcEuros(ef, mMin, mE2, mE3, semPremio);
 
   // ── Férias: 22 dias úteis para todas (lei) ──
   const diasTrab = hor ? hor.diasTrab : 5;
@@ -466,11 +586,11 @@ function calc(t, efCount, aus, periodos, fecho, horarios, alteracoes, compensaco
   const pctAssiduidade = diasUteisPeriodo > 0 ? Math.round(((diasUteisPeriodo - faltasEfetivas) / diasUteisPeriodo) * 1000) / 10 : 100;
   const assiduidadeOk = pctAssiduidade >= 95;
 
-  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, passado, feriadoMun, pctAssiduidade, assiduidadeOk, diasFaltaTotal, diasCompensados, faltasEfetivas };
+  return { quad: q, quads, periodo: { "Período": q.label }, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff: ef - mH, proj, tF, fU, bU, oR, dBn, bR, maxBonusPossivel, dB, dFJ, dFI, dFO, fE2, sc, dLetivoTotal, dLetivoHoje, dQuadTotal, dQuadHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), hLD, hSem, euros5, euros10, eurosTotal, hor, diasTrab, passado, feriadoMun, pctAssiduidade, assiduidadeOk, diasFaltaTotal, diasCompensados, faltasEfetivas, semObjetivo, semPremio, motivoBloqueio, letIni, letFim, pctAno: acum.pctAno, apAno: acum.apAno, objAno: acum.objAno };
 }
 
 function emptyMetrics() {
-  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, passado: false, feriadoMun: null, pctAssiduidade: 100, assiduidadeOk: true, diasFaltaTotal: 0, diasCompensados: 0, faltasEfetivas: 0 };
+  return { quad: null, quads: [], periodo: { "Período": "?" }, ef: 0, mMin: 0, mBonus: 0, mE2: 0, mE3: 0, mH: 0, pH: 0, pM: 0, diff: 0, proj: 0, tF: 0, fU: 0, bU: 0, oR: 0, dBn: 0, bR: 0, maxBonusPossivel: 15, dB: 0, dFJ: 0, dFI: 0, dFO: 0, fE2: 0, sc: C.gray, dLetivoTotal: 0, dLetivoHoje: 0, dQuadTotal: 0, dQuadHoje: 0, dExtraTotal: 0, progQuad: 0, hLD: 0, hSem: 0, euros5: 0, euros10: 0, eurosTotal: 0, hor: null, diasTrab: 5, passado: false, feriadoMun: null, pctAssiduidade: 100, assiduidadeOk: true, diasFaltaTotal: 0, diasCompensados: 0, faltasEfetivas: 0, semObjetivo: true, semPremio: false, motivoBloqueio: null, letIni: null, letFim: null, pctAno: 0, apAno: 0, objAno: 0 };
 }
 
 /* ═══════════════════════ MOTIVO CONFIG ═══════════════════════ */
@@ -1299,7 +1419,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
   const [showComp, setShowComp] = useState(null); // pedido a compensar
   const aus = data.ausencias.filter(a => a.ID_Terapeuta === terap.ID);
   const ap = data.resumoApoios && data.resumoApoios[String(terap.ID)] ? data.resumoApoios[String(terap.ID)].ef : 0;
-  const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
+  const m = calc(terap, ap, aus, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes, data.resumoApoios && data.resumoApoios[String(terap.ID)]);
   m._allAus = aus; // Pass all absences for week-gap detection in form
   const saudePedidos = aus.filter(a => !a.Motivo.includes("Férias")).sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
   const todosPedidos = [...aus].sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
@@ -1327,6 +1447,7 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
   const tabs = [{ id: "inicio", icon: "🏠", l: "Início" }, ...(!isADM ? [{ id: "objetivo", icon: "🎯", l: "Objetivo" }] : []), { id: "ferias", icon: "🌴", l: "Férias" }, { id: "ausencias", icon: "📑", l: "Ausências" }, { id: "pedidos", icon: "📋", l: "Pedidos" }];
   const q = m.quad;
 
+  const allQuadsRef = m.quads || [];
   // Métricas para um quadrimestre específico (para navegação)
   const calcQuad = (qx) => {
     if (!qx) return m;
@@ -1334,14 +1455,22 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
     const fallbackHL = Number(terap["Horas Letivas"]) || 0;
     const fallbackHS = Number(terap["Horas Semanais"]) || 40;
     const altList = getAlteracoesTerap(data.alteracoes, terap.ID);
-    const dLetivoTotal = contarDiasUteis(qx.letivoInicio, qx.letivoFim);
-    const dQuadTotal = contarDiasUteis(qx.qInicio, qx.qFim);
-    const dQuadHoje = contarDiasUteis(qx.qInicio, hojeStr > qx.qFim ? qx.qFim : hojeStr);
-    const dLetivoHoje = contarDiasUteis(qx.letivoInicio, hojeStr > qx.letivoFim ? qx.letivoFim : hojeStr);
+    // [FIX 6] faltava passar o feriado municipal -> o objetivo aqui era MAIOR
+    // do que no ecra principal, para a mesma pessoa e o mesmo quadrimestre.
+    const fMun = m.feriadoMun;
+    const dLetivoTotal = contarDiasUteis(qx.letivoInicio, qx.letivoFim, fMun);
+    const dQuadTotal = contarDiasUteis(qx.qInicio, qx.qFim, fMun);
+    const dQuadHoje = contarDiasUteis(qx.qInicio, hojeStr > qx.qFim ? qx.qFim : hojeStr, fMun);
+    const dLetivoHoje = contarDiasUteis(qx.letivoInicio, hojeStr > qx.letivoFim ? qx.letivoFim : hojeStr, fMun);
     const dExtraTotal = Math.max(dQuadTotal - dLetivoTotal, 0);
-    const ausQ = aus.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= qx.qFim && a["Data Fim"] >= qx.qInicio);
-    const dB = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-    const obj = calcObjetivoDiario(altList, qx.letivoInicio, qx.letivoFim, dB, fallbackHL, fallbackHS);
+    // [FIX 3] vigencia do contrato  +  [FIX 2] baixa so na intersecao
+    const pe = periodoEfetivo(terap, qx.letivoInicio, qx.letivoFim);
+    const letIni = pe ? pe.ini : qx.letivoInicio;
+    const letFim = pe ? pe.fim : qx.letivoFim;
+    const dB = pe ? diasBaixaNoPeriodo(aus, letIni, letFim, fMun) : 0;
+    const hBase = Number(terap["Horas Letivas Objetivo"]) || 0;
+    const obj = pe ? calcObjetivoDiario(altList, letIni, letFim, dB, fallbackHL, fallbackHS, fMun, hBase)
+                   : { mMin: 0, mE3: 0, hLDMedia: 0, hSMedia: 0 };
     const mMin = obj.mMin;
     const hLD = obj.hLDMedia;
     const hSem = obj.hSMedia;
@@ -1352,18 +1481,23 @@ function TherapistView({ data, terap, onLogout, onRefresh, onAddAusencia, onEdit
     const progLetivo = dLetivoTotal > 0 ? dLetivoHoje / dLetivoTotal : 1;
     const mH = Math.round(mMin * progQuad);
     const resumoT = data.resumoApoios && data.resumoApoios[String(terap.ID)] || { ef: 0, efPorQuad: {} };
-    const ef = resumoT.efPorQuad && resumoT.efPorQuad[qx.label] ? resumoT.efPorQuad[qx.label] : (qx === q ? ap : 0);
-    const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
-    const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
+    // [FIX 7] usar hasOwnProperty: um valor 0 legitimo era tratado como "em falta"
+    const temQ = resumoT.efPorQuad && Object.prototype.hasOwnProperty.call(resumoT.efPorQuad, qx.label);
+    const ef = temQ ? Number(resumoT.efPorQuad[qx.label]) || 0 : (qx === q ? ap : 0);
+    const semObjetivo = !(mMin > 0);
+    const pH = mH > 0 ? Math.round((ef / mH) * 100) : 0;
+    const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : 0;
     const diff = ef - mH;
     const proj = dQuadHoje > 0 ? Math.round((ef / dQuadHoje) * dQuadTotal) : 0;
     const fE2 = Math.max(mE2 - ef, 0);
-    const euros5 = ef > mE2 ? Math.min(ef, mE3) - mE2 : 0;
-    const euros10 = ef > mE3 ? ef - mE3 : 0;
-    const eurosTotal = (euros5 * 5) + (euros10 * 10);
+    const acum = acumuladoAno(terap, allQuadsRef, qx, aus, altList, fMun, resumoT.efPorQuad, ef);
+    const motivoBloqueio = motivoSemPremio(terap, qx.qFim) || (!acum.portaOk
+        ? "Acumulado do ano em " + acum.pctAno + "% (mínimo " + Math.round(PORTA_ANUAL*100) + "%)" : null);
+    const semPremio = !!motivoBloqueio;
+    const { euros5, euros10, eurosTotal } = calcEuros(ef, mMin, mE2, mE3, semPremio);
     const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
     const passado = hojeStr > qx.qFim;
-    return { ...m, quad: qx, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff, proj, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, dLetivoHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), progLetivo: Math.round(progLetivo * 100), hLD, hSem, dB, euros5, euros10, eurosTotal, passado };
+    return { ...m, quad: qx, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, diff, proj, fE2, sc, dLetivoTotal, dQuadTotal, dQuadHoje, dLetivoHoje, dExtraTotal, progQuad: Math.round(progQuad * 100), progLetivo: Math.round(progLetivo * 100), hLD, hSem, dB, euros5, euros10, eurosTotal, passado, semObjetivo, semPremio, motivoBloqueio, letIni, letFim, pctAno: acum.pctAno };
   };
 
   const allQuads = m.quads || [];
@@ -2658,7 +2792,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                 .map(t => {
                   const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
                   const ap2 = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
-                  const m2 = calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
+                  const m2 = calc(t, ap2, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes, data.resumoApoios && data.resumoApoios[String(t.ID)]);
                   const totalDisp = (Number(t["Dias Férias"]) || 22) + m2.dBn;
                   const totalUsados = m2.fU + m2.bU;
                   const restam = m2.oR + m2.bR;
@@ -2787,18 +2921,26 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             const aus2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
             const resumo = data.resumoApoios && data.resumoApoios[String(t.ID)] || { ef: 0, efPorQuad: {} };
             const efAtual = resumo.ef || 0;
-            if (!qx) return calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
-            // Para quadrimestre específico, usar efPorQuad
-            const ef = resumo.efPorQuad && resumo.efPorQuad[qx.label] ? resumo.efPorQuad[qx.label] : (qx.label === (allQuads[currentIdx] || {}).label ? efAtual : 0);
+            if (!qx) return calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes, resumo);
+            // [FIX 7] hasOwnProperty: um 0 legitimo era tratado como "em falta"
+            const temQ = resumo.efPorQuad && Object.prototype.hasOwnProperty.call(resumo.efPorQuad, qx.label);
+            const ef = temQ ? Number(resumo.efPorQuad[qx.label]) || 0 : (qx.label === (allQuads[currentIdx] || {}).label ? efAtual : 0);
             const fallbackHL = Number(t["Horas Letivas"]) || 0;
             const fallbackHS = Number(t["Horas Semanais"]) || 40;
             const altList = getAlteracoesTerap(data.alteracoes, t.ID);
-            const dLT = contarDiasUteis(qx.letivoInicio, qx.letivoFim);
-            const dQT = contarDiasUteis(qx.qInicio, qx.qFim);
-            const dQH = contarDiasUteis(qx.qInicio, hojeStr > qx.qFim ? qx.qFim : hojeStr);
-            const ausQ = aus2.filter(a => a.Estado === "Aprovado" && a["Data Início"] <= qx.qFim && a["Data Fim"] >= qx.qInicio);
-            const dB = ausQ.filter(a => a.Motivo === "Baixa Médica").reduce((s, a) => s + Number(a["Dias Úteis"] || 0), 0);
-            const obj = calcObjetivoDiario(altList, qx.letivoInicio, qx.letivoFim, dB, fallbackHL, fallbackHS);
+            // [FIX 6] faltava o feriado municipal em todas estas contagens
+            const fMun = normFeriadoMun(t["Feriado Municipal"]);
+            const dLT = contarDiasUteis(qx.letivoInicio, qx.letivoFim, fMun);
+            const dQT = contarDiasUteis(qx.qInicio, qx.qFim, fMun);
+            const dQH = contarDiasUteis(qx.qInicio, hojeStr > qx.qFim ? qx.qFim : hojeStr, fMun);
+            // [FIX 3] vigencia  +  [FIX 2] baixa so na intersecao com o letivo
+            const pe = periodoEfetivo(t, qx.letivoInicio, qx.letivoFim);
+            const letIni = pe ? pe.ini : qx.letivoInicio;
+            const letFim = pe ? pe.fim : qx.letivoFim;
+            const dB = pe ? diasBaixaNoPeriodo(aus2, letIni, letFim, fMun) : 0;
+            const hBase = Number(t["Horas Letivas Objetivo"]) || 0;
+            const obj = pe ? calcObjetivoDiario(altList, letIni, letFim, dB, fallbackHL, fallbackHS, fMun, hBase)
+                           : { mMin: 0, mE3: 0, hLDMedia: 0, hSMedia: 0 };
             const mMin = obj.mMin;
             const hLD = obj.hLDMedia;
             const hSem = obj.hSMedia;
@@ -2807,14 +2949,17 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
             const mE2 = Math.round(mMin * 1.05);
             const progQ = dQT > 0 ? dQH / dQT : 1;
             const mH = Math.round(mMin * progQ);
-            const pH = mH > 0 ? Math.round((ef / mH) * 100) : (ef > 0 ? 100 : 0);
-            const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : (ef > 0 ? 100 : 0);
-            const euros5 = ef > mE2 ? Math.min(ef, mE3) - mE2 : 0;
-            const euros10 = ef > mE3 ? ef - mE3 : 0;
-            const eurosTotal = (euros5 * 5) + (euros10 * 10);
+            const semObjetivo = !(mMin > 0);
+            const pH = mH > 0 ? Math.round((ef / mH) * 100) : 0;
+            const pM = mMin > 0 ? Math.round((ef / mMin) * 100) : 0;
+            const acum = acumuladoAno(t, allQuads, qx, aus2, altList, fMun, resumo.efPorQuad, ef);
+            const motivoBloqueio = motivoSemPremio(t, qx.qFim) || (!acum.portaOk
+                ? "Acumulado do ano em " + acum.pctAno + "% (mínimo " + Math.round(PORTA_ANUAL*100) + "%)" : null);
+            const semPremio = !!motivoBloqueio;
+            const { euros5, euros10, eurosTotal } = calcEuros(ef, mMin, mE2, mE3, semPremio);
             const sc = pH >= 95 ? C.green : pH >= 80 ? C.yellow : C.red;
-            const mBase = calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
-            return { ...mBase, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, sc, eurosTotal, dB, quad: qx, passado: hojeStr > qx.qFim };
+            const mBase = calc(t, efAtual, aus2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes, resumo);
+            return { ...mBase, ef, mMin, mBonus, mE2, mE3, mH, pH, pM, sc, euros5, euros10, eurosTotal, dB, quad: qx, passado: hojeStr > qx.qFim, semObjetivo, semPremio, motivoBloqueio, pctAno: acum.pctAno, dLetivoTotal: dLT, dQuadTotal: dQT, dQuadHoje: dQH };
           };
 
           return (
@@ -3082,7 +3227,7 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               return terFilt.map(t => {
                 const a2 = data.ausencias.filter(a => a.ID_Terapeuta === t.ID);
                 const ap2 = data.resumoApoios && data.resumoApoios[String(t.ID)] ? data.resumoApoios[String(t.ID)].ef : 0;
-                const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes);
+                const m2 = calc(t, ap2, a2, data.periodos, data.fecho, data.horarios, data.alteracoes, data.compensacoes, data.resumoApoios && data.resumoApoios[String(t.ID)]);
                 const tIsADM = t["Área"] === "ADM";
                 const pedidos = a2.sort((a, b) => (b["Data Pedido"]||"").localeCompare(a["Data Pedido"]||""));
                 return (
@@ -3451,10 +3596,12 @@ function AppInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (forcar) => {
     setLoading(true); setError(null);
     try {
-      const r = await apiGet("tudo");
+      // [FIX 8] o backend ja sabia receber refresh=1 e limpar a cache, mas a app
+      // nunca o enviava -> o botao de recarregar mostrava dados ate 6 horas antigos.
+      const r = await apiGet("tudo", forcar ? { refresh: "1" } : {});
       // Enriquecer ausências com dados de compensação (agrupados)
       if (r.compensacoes && r.compensacoes.length > 0) {
         const compGrouped = {};
@@ -3475,9 +3622,13 @@ function AppInner() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-  const refresh = () => fetchData();
-  const addAus = (n) => setData(p => ({ ...p, ausencias: [...p.ausencias, { ...n, _linha: p.ausencias.length + 2 }] }));
+  useEffect(() => { fetchData(false); }, [fetchData]);
+  const refresh = () => fetchData(true);
+  // [FIX 9] Antes inventava-se _linha = ausencias.length + 2. Como lerFolha SALTA
+  // linhas (celula vazia, ou a comecar por "("), esse numero podia nao ser a linha
+  // real da folha -- e cancelar/editar escrevia na linha ERRADA. Sem _linha, a app
+  // so mostra o pedido; as accoes ficam disponiveis depois do proximo refresh.
+  const addAus = (n) => { setData(p => ({ ...p, ausencias: [...p.ausencias, { ...n, _linha: null, _pendenteSync: true }] })); fetchData(true); };
   const updEst = (ln, est, obs, extra) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, ...(est ? { Estado: est } : {}), ...(obs ? { "Resposta Gestão": obs } : {}), ...(extra || {}) } : a) }));
   const editAus = (ln, changes) => setData(p => ({ ...p, ausencias: p.ausencias.map(a => a._linha === ln ? { ...a, ...changes } : a) }));
 
