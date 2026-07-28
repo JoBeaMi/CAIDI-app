@@ -2986,8 +2986,12 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
               const top3 = ranked.slice(0, 3);
               const podiumOrder = top3.length >= 3 ? [top3[1], top3[0], top3[2]] : top3;
               const podiumHeights = top3.length >= 3 ? [64, 80, 52] : (top3.length === 2 ? [64, 80] : [80]);
+              // [FIX 14] As medalhas estavam TROCADAS: podiumOrder é [2.º, 1.º, 3.º]
+              // (para o 1.º ficar ao centro, no degrau alto), mas as medalhas eram
+              // atribuídas por [🥇, 🥈, 🥉] — dando o ouro a quem ficou em 2.º.
+              // medals já está na ordem do pódio, basta usá-lo tal como está.
               const medals = ["🥈", "🥇", "🥉"];
-              const podiumMedals = top3.length >= 3 ? [medals[1], medals[0], medals[2]] : (top3.length === 2 ? [medals[1], medals[0]] : [medals[0]]);
+              const podiumMedals = top3.length >= 3 ? medals : (top3.length === 2 ? [medals[1], medals[0]] : [medals[1]]);
               if (top3.length === 0) return null;
               return (
                 <Card delay={0} style={{ marginBottom: 10 }}>
@@ -3010,10 +3014,10 @@ function AdminView({ data, onLogout, onRefresh, onUpdateEstado }) {
                     })}
                   </div>
                   {/* Alertas - quem está abaixo */}
-                  {ranked.filter(t => t.m.pH < 80 && t.m.dB === 0).length > 0 && (
+                  {ranked.filter(t => t.m.pH < 80 && t.m.dB <= 5).length > 0 && (
                     <div style={{ marginTop: 8, padding: "8px 10px", background: C.redBg, borderRadius: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 800, color: C.red, marginBottom: 4 }}>🚨 Abaixo do mínimo (sem baixa):</div>
-                      {ranked.filter(t => t.m.pH < 80 && t.m.dB === 0).map(t => (
+                      {ranked.filter(t => t.m.pH < 80 && t.m.dB <= 5).map(t => (
                         <div key={t.ID} style={{ fontSize: 11, color: C.red, fontWeight: 600 }}>• {t.Nome} — {t.m.pM}% ({t.m.ef}/{t.m.mMin})</div>
                       ))}
                     </div>
